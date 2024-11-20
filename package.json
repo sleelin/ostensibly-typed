@@ -1,0 +1,44 @@
+{
+  "name": "ostensibly-typed",
+  "description": "Generate type declarations for JavaScript libraries at build time, from JSDoc type annotations",
+  "version": "1.0.0",
+  "author": "sleelin",
+  "license": "MPL-2.0",
+  "type": "module",
+  "homepage": "https://github.com/sleelin/ostensibly-typed",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sleelin/ostensibly-typed.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sleelin/ostensibly-typed/issues"
+  },
+  "keywords": [
+    ".d.ts",
+    "dts",
+    "types",
+    "jsdoc",
+    "tsdoc",
+    "documentation"
+  ],
+  "files": [
+    "dist/**"
+  ],
+  "exports": {
+    ".": "./dist/index.js",
+    "./plugin-rollup": {
+      "import": "./dist/plugins/rollup.js"
+    }
+  },
+  "scripts": {
+    "dev": "vite build -w",
+    "build": "vite build"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}
