@@ -109,3 +109,17 @@ The `generateDeclarations` method takes a single configuration object with the f
 * `defaultExport`: name of your library's default export
 * (Optional) `compilerOptions`: any additional options to pass to the TypeScript compiler
   * In order to function correctly, the `allowJs` option will always be set to `true`
+
+### Supported Tags
+
+The following JSDoc tags are currently handled when generating the declaration file:
+* `@module`: identifies top-level module declarations that can be imported by library consumers
+* `@namespace`: identifies classes that should also be treated as containing namespaces for declaration merging
+* `@alias`: used to determine which namespace a given class should be declared under
+* `@enum`: will be transformed into a TypeScript literal type declaration under the namespace specified by the name portion of the tag
+* `@typedef`: will be transformed into an actual TypeScript type declaration under the namespace specified by the name portion of the tag
+* `@callback`: will be transformed into a TypeScript function declaration under the namespace specified by the name portion of the tag
+* `@template`: will be transformed into "type parameters" for annotated classes, methods, and callbacks
+* `@typeParam`: used to specify additional type parameters for annotated methods and callbacks
+* `@private`: used to prevent type declarations generated for a given annotation from being exported
+* `@internal`: used to prevent generation of type declarations for a given annotation
