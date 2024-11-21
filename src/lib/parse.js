@@ -49,7 +49,8 @@ const resolveVirtualTags = (type, tags) => ((tags && ts.createSourceFile(".js", 
  */
 export const resolveNodeLocals = (node) => new Map([
     ...(node.locals?.entries() ?? []),
-    ...ts.getAllJSDocTags(node, ts.isJSDocTemplateTag).flatMap(({typeParameters}) => typeParameters)
+    ...(ts.isJSDoc(node) ? node.tags.filter(ts.isJSDocTemplateTag) : ts.getAllJSDocTags(node, ts.isJSDocTemplateTag))
+        .flatMap(({typeParameters}) => typeParameters)
         .map((param) => ([param.name.escapedText, {declarations: [param]}]))
 ]);
 
@@ -99,10 +100,7 @@ export const resolveImplicitTypeDefs = (checker, node, namespaces) => {
  * @returns {ts.TypeNode} a type node valid for use wherever type nodes are expected
  */
 export const resolveActualType = (checker, node, isAsync = false) => {
-    const type = checker.getTypeFromTypeNode(node);
-    
-    if (type.intrinsicName !== "error") return checker.typeToTypeNode(type);
-    else if (isAsync) {
+    if (isAsync) {
         return ts.factory.createTypeReferenceNode(ts.factory.createIdentifier("Promise"), [resolveActualType(checker, node)]);
     } else if (node) {
         switch (node.kind) {
@@ -116,8 +114,12 @@ export const resolveActualType = (checker, node, isAsync = false) => {
             case ts.SyntaxKind.ArrayType:
                 return ts.factory.createArrayTypeNode(resolveActualType(checker, node.elementType));
             
-            default:
-                return resolveActualType(checker, node.typeExpression ?? node.type);
+            default: {
+                const type = checker.getTypeFromTypeNode(node);
+                
+                if (type.intrinsicName !== "error") return checker.typeToTypeNode(type);
+                else return resolveActualType(checker, node.typeExpression ?? node.type);
+            }
         }
     } else {
         return ts.factory.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword);

@@ -30,7 +30,7 @@ export const annotateProp = (prop) => (prop.comment ? [ts.factory.createJSDocCom
  * @param {ts.ConstructorDeclaration|ts.MethodDeclaration|ts.AccessorDeclaration} node - the class method or property accessor to annotate
  * @returns {JSDoc[]} the documentation comment describing the method
  */
-export const annotateMethod = (node) => (node.jsDoc ?? []).flatMap(({comment, tags}) => (comment || tags?.some((tag) => ts.isJSDocParameterTag(tag) && tag.comment)) ? [ts.factory.createJSDocComment(comment, annotateParams(tags, tags.find(ts.isJSDocReturnTag)))] : []);
+export const annotateMethod = (node) => (node.jsDoc ?? []).flatMap(({comment, tags}) => ((comment && !tags?.some(ts.isJSDocOverloadTag)) || tags?.some((tag) => ts.isJSDocParameterTag(tag) && tag.comment)) ? [ts.factory.createJSDocComment(comment, annotateParams(tags, tags.find(ts.isJSDocReturnTag)))] : []);
 
 /**
  * Annotate a function type expression, including parameters and return value

@@ -21,7 +21,7 @@ const generateTypeParameterDeclarations = (checker, locals) => (locals && Array.
  * @param {ts.ParameterDeclaration[]} params - list of function parameters to generate explicit declarations for
  * @returns {ts.ParameterDeclaration[]} list of function parameters sourced directly and indirectly from JSDoc tags
  */
-const generateParameterDeclarations = (checker, params) => params.map((node) => ([node, ts.getJSDocParameterTags(node)])).flatMap(([node, tags]) => ts.factory.createParameterDeclaration(
+const generateParameterDeclarations = (checker, params) => params.map((node) => ([node, ts.isJSDocParameterTag(node) ? [node] : ts.getJSDocParameterTags(node)])).flatMap(([node, tags]) => ts.factory.createParameterDeclaration(
     node.modifiers, node.dotDotDotToken, node.name,
     tags.some(({isBracketed}) => isBracketed) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
     tags.length > 1 ? ts.factory.createUnionTypeNode(tags.map((t) => resolveActualType(checker, t))) : resolveActualType(checker, tags[0]))
@@ -74,27 +74,42 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
             type = ts.getJSDocTypeTag(source.members.find((m) => ts.isGetAccessorDeclaration(m) && m.name.escapedText === name.escapedText));
         }
         
-        return ts.isGetAccessorDeclaration(node) ? (
-            ts.factory.createGetAccessorDeclaration(modifiers, node.name, parameters, resolveActualType(checker, type))
-        ) : (
-            ts.factory.createSetAccessorDeclaration(modifiers, node.name, parameters)
-        );
+        return [
+            ...annotateMethod(node),
+            ts.isGetAccessorDeclaration(node) ? (
+                ts.factory.createGetAccessorDeclaration(modifiers, node.name, parameters, resolveActualType(checker, type))
+            ) : (
+                ts.factory.createSetAccessorDeclaration(modifiers, node.name, parameters)
+            )
+        ];
     }
     else if (type)
-        return ts.factory.createPropertyDeclaration(modifiers, node.name, node.questionToken, resolveActualType(checker, type));
+        return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, node.questionToken, resolveActualType(checker, type))];
     else if (abstractTag && templates.length && modifiers.some(isStaticModifier)) {
         const name = ts.factory.createQualifiedName(node.parent.name, node.name);
         const type = ts.factory.createTypeReferenceNode(name, Array(templates.length).fill(ts.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)));
         
-        return ts.factory.createPropertyDeclaration(modifiers, node.name, node.questionToken, type);
+        return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, node.questionToken, type)];
     }
     else if (implementsTag?.class?.typeArguments?.length)
-        return ts.factory.createPropertyDeclaration(modifiers, node.name, node.questionToken, implementsTag.class);
+        return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, node.questionToken, implementsTag.class)];
     else if (!implementsTag) {
-        return ts.factory.createMethodDeclaration(
-            modifiers, node.asteriskToken, node.name, node.questionToken, templates, parameters,
-            resolveActualType(checker, ts.getJSDocReturnTag(node), node.modifiers?.some(({kind}) => kind === ts.SyntaxKind.AsyncKeyword))
-        );
+        const overloads = ts.getAllJSDocTags(node, ts.isJSDocOverloadTag);
+        
+        return [
+            ...overloads.flatMap((tag) => ([
+                ...annotateFunction(tag), ts.factory.createMethodDeclaration(
+                    modifiers, node.asteriskToken, node.name, node.questionToken,
+                    generateTypeParameterDeclarations(checker, resolveNodeLocals(tag.parent)),
+                    generateParameterDeclarations(checker, tag.typeExpression.parameters),
+                    resolveActualType(checker, tag.typeExpression.type, node.modifiers?.some(({kind}) => kind === ts.SyntaxKind.AsyncKeyword))
+                )
+            ])),
+            ...annotateMethod(node), ts.factory.createMethodDeclaration(
+                modifiers, node.asteriskToken, node.name, node.questionToken, !overloads.length ? templates : undefined, parameters,
+                resolveActualType(checker, ts.getJSDocReturnTag(node), node.modifiers?.some(({kind}) => kind === ts.SyntaxKind.AsyncKeyword))
+            )
+        ];
     }
 };
 
@@ -200,7 +215,7 @@ const generateMemberDeclaration = (checker, node, namespaces) => {
         case ts.SyntaxKind.GetAccessor:
         case ts.SyntaxKind.SetAccessor:
         case ts.SyntaxKind.MethodDeclaration:
-            return [...annotateMethod(node), generateMethodDeclaration(checker, node, namespaces) ?? []].flat();
+            return generateMethodDeclaration(checker, node, namespaces) ?? [];
         default:
             return node;
     }
