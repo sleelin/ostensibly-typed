@@ -1,6 +1,6 @@
 import ts from "typescript";
-import {findNamespaces, getNamespaceNameForTag, resolveActualType, resolveNodeLocals} from "./parse.js";
-import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isStaticModifier} from "./filter";
+import {findNamespaces, getNamespaceNameForTag, resolveActualType, resolveNodeLocals, resolveVirtualTags} from "./parse.js";
+import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isStaticModifier} from "./filter";
 import {annotateFunction, annotateMethod, annotateProp} from "./annotate.js";
 
 /**
@@ -30,13 +30,19 @@ const generateParameterDeclarations = (checker, params) => params.map((node) => 
 /**
  * Generate annotation and declaration for a given property definition
  * @param {ts.TypeChecker} checker - the TypeScript program's type checker
- * @param {ts.PropertyDeclaration} node - property definition to annotate and resolve typing for
+ * @param {ts.PropertyDeclaration|ts.JSDocPropertyTag} node - property definition to annotate and resolve typing for
  * @returns {(ts.JSDoc|ts.PropertyDeclaration)[]} property annotation and declaration
  */
 const generatePropertyDeclaration = (checker, node) => ([
-    ...annotateProp(node.jsDoc?.slice(-1)?.pop()),
+    ...annotateProp(ts.isJSDocPropertyTag(node) ? node : node.jsDoc?.slice(-1)?.pop()),
     ts.factory.createPropertyDeclaration(
-        node.modifiers, node.name, node.questionToken, resolveActualType(checker, ts.getJSDocTypeTag(node))
+        node.modifiers, node.name,
+        node.isBracketed ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
+        node.typeExpression?.type && ts.isJSDocTypeLiteral(node.typeExpression.type) ? (
+            generateTypeDefType(checker, node.typeExpression.type)
+        ) : (
+            resolveActualType(checker, ts.getJSDocTypeTag(node) ?? node.typeExpression)
+        )
     )
 ]);
 
@@ -47,6 +53,8 @@ const generatePropertyDeclaration = (checker, node) => ([
  * @returns {(ts.SyntaxKind.JSDoc|ts.ConstructorDeclaration)[]} annotated properties, constructor annotation and declaration
  */
 const generateConstructorDeclaration = (checker, node) => ([
+    ...(resolveVirtualTags("prop", ts.getAllJSDocTags(node, isJSDocPropertyTag)).shift()?.typeExpression?.jsDocPropertyTags ?? [])
+        .flatMap((node) => generatePropertyDeclaration(checker, node)),
     ...annotateMethod(node),
     ts.factory.createConstructorDeclaration(node.modifiers, generateParameterDeclarations(checker, node.parameters))
 ]);

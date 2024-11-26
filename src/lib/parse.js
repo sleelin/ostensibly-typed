@@ -39,8 +39,8 @@ export const getNamespaceNameForTag = (tag) => {
  * @param {ts.JSDocTag[]} [tags] - "unknown" tags to re-evaluate as some other kind of tag
  * @returns {ts.JSDocTag[]} the re-evaluated tags, hopefully with expected type and metadata
  */
-const resolveVirtualTags = (type, tags) => ((tags && ts.createSourceFile(".js", `/**\r\n${tags.map(({comment}) => ` * @${type} ${comment}`).join("\r\n")}\r\n */`)
-    .endOfFileToken.jsDoc?.shift().tags) ?? []);
+export const resolveVirtualTags = (type, tags) => ((tags?.length && ts.createSourceFile(".js", [`/**`, ...(type.match(/^prop(erty)?$/) ? [" * @typedef"] : []), ...tags.map(({comment}) => ` * @${type} ${ts.getTextOfJSDocComment(comment)}`), ` */`].join("\r\n"), ts.ScriptTarget.Latest, true)
+    .endOfFileToken.jsDoc?.shift().tags) || []);
 
 /**
  * Merge JSDoc template tags with node local declarations
@@ -116,9 +116,8 @@ export const resolveActualType = (checker, node, isAsync = false) => {
             
             default: {
                 const type = checker.getTypeFromTypeNode(node);
-                
                 if (type.intrinsicName !== "error") return checker.typeToTypeNode(type);
-                else return resolveActualType(checker, node.typeExpression ?? node.type);
+                return resolveActualType(checker, node.typeExpression ?? node.type);
             }
         }
     } else {

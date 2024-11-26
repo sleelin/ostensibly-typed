@@ -120,8 +120,10 @@ The following JSDoc tags are currently handled when generating the declaration f
 * `@typedef`: will be transformed into an actual TypeScript type declaration under the namespace specified by the name portion of the tag
 * `@callback`: will be transformed into a TypeScript function declaration under the namespace specified by the name portion of the tag
 * `@param`/`@parameter`: used to specify the type for function or class method arguments
+* `@prop`/`@property`: used to specify class or variable properties that are not explicitly documented at assignment
 * `@template`: will be transformed into "type parameters" for annotated classes, methods, and callbacks
 * `@typeParam`: used to specify additional type parameters for annotated methods and callbacks
+* `@abstract`: used to specify that a given class method should be treated as an implicit type declaration
 * `@private`: used to prevent type declarations generated for a given annotation from being exported
 * `@internal`: used to prevent generation of type declarations for a given annotation
 * `@overload`: will be transformed into an extra call signature for a function or class method

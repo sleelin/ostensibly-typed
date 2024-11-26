@@ -9,15 +9,16 @@ import ts from "typescript";
 
 /**
  * Get a type predicate comparison function for a given tag name
- * @param {String} name - expected JSDoc tag name
+ * @param {String[]} names - expected JSDoc tag names
  * @returns {JSDocTagTest} whether the tag name matches the expected name
  */
-const getTagNameComparisonMethod = (name) => ({tagName: {escapedText} = {}}) => (escapedText.toLowerCase() === name);
+const getTagNameComparisonMethod = (...names) => ({tagName: {escapedText} = {}}) => (names.includes(escapedText.toLowerCase()));
 
 export const /** @type {Function} */ isJSDocAbstractTag = getTagNameComparisonMethod("abstract");
 export const /** @type {Function} */ isJSDocExtendsTag = getTagNameComparisonMethod("extends");
 export const /** @type {Function} */ isJSDocInheritDocTag = getTagNameComparisonMethod("inheritdoc");
 export const /** @type {Function} */ isJSDocInternalTag = getTagNameComparisonMethod("internal");
+export const /** @type {Function} */ isJSDocPropertyTag = getTagNameComparisonMethod("prop", "property");
 export const /** @type {Function} */ isJSDocTypeParamTag = getTagNameComparisonMethod("typeparam");
 
 /**
