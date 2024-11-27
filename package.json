@@ -32,7 +32,8 @@
   },
   "scripts": {
     "dev": "vite build -w",
-    "build": "vite build"
+    "build": "vite build",
+    "prepare": "vite build"
   },
   "peerDependencies": {
     "typescript": ">=5.6"
