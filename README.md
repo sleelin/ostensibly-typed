@@ -127,3 +127,4 @@ The following JSDoc tags are currently handled when generating the declaration f
 * `@private`: used to prevent type declarations generated for a given annotation from being exported
 * `@internal`: used to prevent generation of type declarations for a given annotation
 * `@overload`: will be transformed into an extra call signature for a function or class method
+* `@throws`: used to specify that the return type for a callback or method should be "never"

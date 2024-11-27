@@ -1,6 +1,6 @@
 import ts from "typescript";
 import {findNamespaces, getNamespaceNameForTag, resolveActualType, resolveNodeLocals, resolveVirtualTags} from "./parse.js";
-import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isStaticModifier} from "./filter";
+import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isJSDocThrowsTag, isStaticModifier} from "./filter";
 import {annotateFunction, annotateMethod, annotateProp} from "./annotate.js";
 
 /**
@@ -11,7 +11,9 @@ import {annotateFunction, annotateMethod, annotateProp} from "./annotate.js";
  */
 const generateTypeParameterDeclarations = (checker, locals) => (locals && Array.from(locals.values(), ({declarations}) => declarations)
     .flat().filter(ts.isTypeParameterDeclaration).map((type) => ts.factory.createTypeParameterDeclaration(
-        undefined, type.name, type.parent.constraint && resolveActualType(checker, type.parent.constraint.type), type.default
+        undefined, type.name,
+        type.parent.constraint && resolveActualType(checker, type.parent.constraint.type),
+        type.default && resolveActualType(checker, type.default)
     ))
 );
 
@@ -110,12 +112,20 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
                     modifiers, node.asteriskToken, node.name, node.questionToken,
                     generateTypeParameterDeclarations(checker, resolveNodeLocals(tag.parent)),
                     generateParameterDeclarations(checker, tag.typeExpression.parameters),
-                    resolveActualType(checker, tag.typeExpression.type, node.modifiers?.some(({kind}) => kind === ts.SyntaxKind.AsyncKeyword))
+                    tag.parent.tags?.some(isJSDocThrowsTag) ? (
+                        ts.factory.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword)
+                    ) : (
+                        resolveActualType(checker, tag.typeExpression.type, node.modifiers?.some(({kind}) => kind === ts.SyntaxKind.AsyncKeyword))
+                    )
                 )
             ])),
             ...annotateMethod(node), ts.factory.createMethodDeclaration(
                 modifiers, node.asteriskToken, node.name, node.questionToken, !overloads.length ? templates : undefined, parameters,
-                resolveActualType(checker, ts.getJSDocReturnTag(node), node.modifiers?.some(({kind}) => kind === ts.SyntaxKind.AsyncKeyword))
+                ts.getAllJSDocTags(node, isJSDocThrowsTag).length ? (
+                    ts.factory.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword)
+                ) : (
+                    resolveActualType(checker, ts.getJSDocReturnTag(node), node.modifiers?.some(({kind}) => kind === ts.SyntaxKind.AsyncKeyword))
+                )
             )
         ];
     }

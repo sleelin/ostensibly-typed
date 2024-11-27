@@ -19,6 +19,7 @@ export const /** @type {Function} */ isJSDocExtendsTag = getTagNameComparisonMet
 export const /** @type {Function} */ isJSDocInheritDocTag = getTagNameComparisonMethod("inheritdoc");
 export const /** @type {Function} */ isJSDocInternalTag = getTagNameComparisonMethod("internal");
 export const /** @type {Function} */ isJSDocPropertyTag = getTagNameComparisonMethod("prop", "property");
+export const /** @type {Function} */ isJSDocThrowsTag = getTagNameComparisonMethod("throws");
 export const /** @type {Function} */ isJSDocTypeParamTag = getTagNameComparisonMethod("typeparam");
 
 /**
