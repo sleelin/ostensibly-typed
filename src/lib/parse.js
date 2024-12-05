@@ -132,7 +132,8 @@ export const resolveActualType = (checker, node, isAsync = false) => {
         const guessed = checker.typeToTypeNode(type);
         
         switch (node.kind) {
-            // Assume "typeof" type queries are already correct 
+            // Assume "typeof" and "keyof" type queries are already correct
+            case ts.SyntaxKind.TypeOperator:
             case ts.SyntaxKind.TypeQuery:
                 return node;
             
