@@ -23,6 +23,13 @@ export const /** @type {Function} */ isJSDocThrowsTag = getTagNameComparisonMeth
 export const /** @type {Function} */ isJSDocTypeParamTag = getTagNameComparisonMethod("typeparam");
 
 /**
+ * Check whether a given node represents an optional type
+ * @param {ts.JSDocTag} node - the node being tested
+ * @returns {Boolean} whether the node represents an optional type
+ */
+export const isOptionalType = (node) => (node.isBracketed || (node.typeExpression?.type && ts.isJSDocOptionalType(node.typeExpression.type)));
+
+/**
  * Check whether a given modifier node is for the static keyword
  * @param {ts.Modifier} node - modifier whose kind should be checked
  * @returns {Boolean} whether the node was a static modifier

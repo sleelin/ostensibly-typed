@@ -1,6 +1,6 @@
 import ts from "typescript";
 import {findNamespaces, getNamespaceNameForTag, resolveActualType, resolveNodeLocals, resolveVirtualTags} from "./parse.js";
-import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isJSDocThrowsTag, isStaticModifier} from "./filter";
+import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isJSDocThrowsTag, isOptionalType, isStaticModifier} from "./filter";
 import {annotateFunction, annotateMethod, annotateProp} from "./annotate.js";
 
 /**
@@ -25,7 +25,7 @@ const generateTypeParameterDeclarations = (checker, locals) => (locals && Array.
  */
 const generateParameterDeclarations = (checker, params) => params.map((node) => ([node, ts.isJSDocParameterTag(node) ? [node] : ts.getJSDocParameterTags(node)])).flatMap(([node, tags]) => ts.factory.createParameterDeclaration(
     node.modifiers, node.dotDotDotToken, node.name,
-    tags.some(({isBracketed}) => isBracketed) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
+    tags.some(isOptionalType) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
     tags.length > 1 ? ts.factory.createUnionTypeNode(tags.map((t) => resolveActualType(checker, t))) : resolveActualType(checker, tags[0]))
 );
 
@@ -39,11 +39,13 @@ const generatePropertyDeclaration = (checker, node) => ([
     ...annotateProp(ts.isJSDocPropertyTag(node) ? node : node.jsDoc?.slice(-1)?.pop()),
     ts.factory.createPropertyDeclaration(
         node.modifiers, node.name,
-        node.isBracketed ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
-        node.typeExpression?.type && ts.isJSDocTypeLiteral(node.typeExpression.type) ? (
+        isOptionalType(node) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
+        node.typeExpression?.type && ts.isJSDocTypeLiteral(node.typeExpression.type) ? node.typeExpression.type.isArrayType ? (
+            ts.factory.createTypeReferenceNode(ts.factory.createIdentifier("Array"), [generateTypeDefType(checker, node.typeExpression.type)])
+        ) : (
             generateTypeDefType(checker, node.typeExpression.type)
         ) : (
-            resolveActualType(checker, ts.getJSDocTypeTag(node) ?? node.typeExpression)
+            resolveActualType(checker, ts.getJSDocTypeTag(node) ?? node.typeExpression?.type ?? node.typeExpression)
         )
     )
 ]);
@@ -74,6 +76,7 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
     const modifiers = node.modifiers?.filter(({kind}) => kind !== ts.SyntaxKind.AsyncKeyword);
     const templates = node.typeParameters ?? generateTypeParameterDeclarations(checker, node.locals);
     const parameters = generateParameterDeclarations(checker, node.parameters);
+    const questionToken = isOptionalType(node) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken;
     let type = ts.getJSDocTypeTag(node);
     
     if (ts.isAccessor(node) && (type || implementsTag?.class?.typeArguments?.length)) {
@@ -94,22 +97,24 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
         ];
     }
     else if (type)
-        return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, node.questionToken, resolveActualType(checker, type))];
+        return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, questionToken, resolveActualType(checker, type))];
     else if (abstractTag && templates.length && modifiers.some(isStaticModifier)) {
         const name = ts.factory.createQualifiedName(node.parent.name, node.name);
         const type = ts.factory.createTypeReferenceNode(name, Array(templates.length).fill(ts.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)));
         
-        return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, node.questionToken, type)];
+        return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, questionToken, type)];
     }
     else if (implementsTag?.class?.typeArguments?.length)
-        return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, node.questionToken, implementsTag.class)];
+        return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, questionToken, implementsTag.class)];
     else if (!implementsTag) {
         const overloads = ts.getAllJSDocTags(node, ts.isJSDocOverloadTag);
         
         return [
             ...overloads.flatMap((tag) => ([
-                ...annotateFunction(tag), ts.factory.createMethodDeclaration(
-                    modifiers, node.asteriskToken, node.name, node.questionToken,
+                ...annotateFunction(tag),
+                ts.factory.createMethodDeclaration(
+                    modifiers, node.asteriskToken, node.name,
+                    isOptionalType(node) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
                     generateTypeParameterDeclarations(checker, resolveNodeLocals(tag.parent)),
                     generateParameterDeclarations(checker, tag.typeExpression.parameters),
                     tag.parent.tags?.some(isJSDocThrowsTag) ? (
@@ -119,8 +124,9 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
                     )
                 )
             ])),
-            ...annotateMethod(node), ts.factory.createMethodDeclaration(
-                modifiers, node.asteriskToken, node.name, node.questionToken, !overloads.length ? templates : undefined, parameters,
+            ...annotateMethod(node),
+            ts.factory.createMethodDeclaration(
+                modifiers, node.asteriskToken, node.name, questionToken, !overloads.length ? templates : undefined, parameters,
                 ts.getAllJSDocTags(node, isJSDocThrowsTag).length ? (
                     ts.factory.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword)
                 ) : (
@@ -142,7 +148,7 @@ const generateTypeDefType = (checker, typeExpression) => ts.factory.createTypeLi
         ...annotateProp(node),
         ts.factory.createPropertySignature(
             undefined, ts.isQualifiedName(node.name) ? node.name.right : node.name,
-            node.isBracketed ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
+            isOptionalType(node) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
             ts.isTypeNode(node.typeExpression.type) ? (
                 resolveActualType(checker, node.typeExpression.type)
             ) : node.typeExpression.type.isArrayType ? (
@@ -156,14 +162,15 @@ const generateTypeDefType = (checker, typeExpression) => ts.factory.createTypeLi
 
 /**
  * Generate a type literal declaration from a property assignment or declaration documented as an ENUM
+ * @param {ts.JSDocTypeExpression} typeExpression - the callback tag's type expression declaration
  * @param {ts.PropertyAssignment|ts.PropertyDeclaration} source - the node which contains values to treat as enum members
  * @returns {ts.UnionTypeNode} type containing all values converted to type literals
  */
-const generateEnumType = (source) => ts.factory.createUnionTypeNode(
-    (ts.isPropertyAssignment(source) ? [source] : source.declarationList.declarations)
-        .map(({initializer}) => initializer.elements.map((type) => ts.factory.createLiteralTypeNode(
-            ts.isNumericLiteral(type) ? ts.factory.createNumericLiteral(type.text) : ts.factory.createStringLiteral(type.text)))
-        )
+const generateEnumType = (typeExpression, source) => ts.factory.createUnionTypeNode(
+    ts.isUnionTypeNode(typeExpression?.type) ? typeExpression.type.types
+        .map(({literal: type}) => ts.factory.createLiteralTypeNode(ts.isNumericLiteral(type) ? ts.factory.createNumericLiteral(type.text) : ts.factory.createStringLiteral(type.text)))
+    : (ts.isPropertyAssignment(source) ? [source] : source.declarationList.declarations)
+        .map(({initializer}) => initializer.elements.map((type) => ts.factory.createLiteralTypeNode(ts.isNumericLiteral(type) ? ts.factory.createNumericLiteral(type.text) : ts.factory.createStringLiteral(type.text))))
         .flatMap((types, _, declarations) => declarations.length > 1 ? ts.factory.createUnionTypeNode(types) : types)
 );
 
@@ -178,7 +185,7 @@ const generateCallbackType = (checker, typeExpression, source) => ts.factory.cre
     typeExpression.typeParameters,
     typeExpression.parameters?.map((node) => ts.factory.createParameterDeclaration(
         undefined, undefined, node.name,
-        node.isBracketed ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
+        isOptionalType(node) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
         node.type ?? resolveActualType(checker, node.typeExpression?.type ?? node?.type ?? node),
         undefined
     )),
@@ -195,7 +202,7 @@ const generateCallbackType = (checker, typeExpression, source) => ts.factory.cre
 const generateTypeDeclaration = (checker, node, source) => (
     ts.isJSDocTypedefTag(node) ? generateTypeDefType(checker, node.typeExpression) :
     ts.isJSDocTypeLiteral(node) ? generateTypeDefType(checker, node) :
-    ts.isJSDocEnumTag(node) ? generateEnumType(source) :
+    ts.isJSDocEnumTag(node) ? generateEnumType(node.typeExpression, source) :
     ts.isJSDocCallbackTag(node) ? generateCallbackType(checker, node.typeExpression, source) :
     undefined
 );
