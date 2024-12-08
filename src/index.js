@@ -15,9 +15,8 @@ export default function ostensiblyTyped(config = {}) {
     for (let sourceFile of program.getSourceFiles()) {
         if (!sourceFile.isDeclarationFile) ts.forEachChild(sourceFile, function visitor(node) {
             if (ts.isClassDeclaration(node)) {
-                findNamespaces(node, namespaces, (name) => ["namespace", "alias"].includes(name), ({type, node}, existing = {}) => ({type, node, ...existing, source: node}));
-                findNamespaces(node, modules, (name) => ["module"].includes(name), ({node}) =>
-                    ts.getAllJSDocTags(node, ({tagName: {escapedText} = {}}) => escapedText === "namespace").shift()?.comment);
+                findNamespaces(node, namespaces, ["namespace", "alias"], ({type, node}, existing = {}) => ({type, node, ...existing, source: node}));
+                findNamespaces(node, modules, ["module"], ({node}) => ts.getAllJSDocTags(node, ({tagName: {escapedText} = {}}) => escapedText === "namespace").shift()?.comment);
             }
             
             resolveImplicitTypeDefs(checker, node, namespaces);
@@ -27,7 +26,7 @@ export default function ostensiblyTyped(config = {}) {
     
     return ts.createPrinter({removeComments: false}).printFile(
         ts.factory.createSourceFile(ts.factory.createNodeArray([
-            ...Array.from(modules.entries(), ([name, namespace]) => ts.factory.createModuleDeclaration(
+            ...Array.from(modules.entries()).filter(([name]) => name !== moduleName).map(([name, namespace]) => ts.factory.createModuleDeclaration(
                 [ts.factory.createToken(ts.SyntaxKind.DeclareKeyword)], ts.factory.createStringLiteral(name),
                 ts.factory.createModuleBlock([
                     ts.factory.createImportDeclaration(undefined, ts.factory.createImportClause(false, ts.factory.createIdentifier(defaultExport)), ts.factory.createStringLiteral(moduleName)),

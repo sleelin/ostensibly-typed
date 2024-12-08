@@ -5,13 +5,13 @@ import {isJSDocAbstractTag, isJSDocTypeParamTag, isStaticModifier} from "./filte
  * Traverse to a given namespace in a map, then take some kind of action
  * @param {String|ts.Node} node - either the namespace name, or node with JSDoc tags to find namespace name for
  * @param {Map<string, any>} target - where the found namespace, and any intermediaries, should be saved to
- * @param {Function} [tagTest] - method to determine name-containing tag when looking for namespace name from JSDoc tags
+ * @param {String[]} [tagNames] - method to determine name-containing tag when looking for namespace name from JSDoc tags
  * @param {Function} [whenFound] - what to do when the destination namespace has been found
  * @returns {*} the destination namespace value from the target
  */
-export const findNamespaces = (node, target, tagTest, whenFound = (_, e) => e) => {
+export const findNamespaces = (node, target, tagNames = [], whenFound = (_, e) => e) => {
     // If node is a node, go look for JSDoc tags that could have a namespace...
-    const [{comment, tagName: {escapedText: type} = {}} = {}] = typeof node === "string" ? [] : ts.getAllJSDocTags(node, ({tagName: {escapedText} = {}}) => tagTest(escapedText));
+    const [{comment, tagName: {escapedText: type} = {}} = {}] = typeof node === "string" ? [] : ts.getAllJSDocTags(node, ({tagName: {escapedText} = {}}) => tagNames.includes(escapedText));
     // ...otherwise, node must be the namespace
     const name = typeof node === "string" ? node : comment;
     const namespace = name?.split(".");
@@ -88,7 +88,7 @@ export const resolveImplicitTypeDefs = (checker, node, namespaces) => {
             const isStatic = node.modifiers?.some(isStaticModifier);
             const hasTypeParams = hasTemplates && doc.tags.some(isJSDocTypeParamTag);
             // Find the parent namespace so we can save the declaration for later!
-            const target = findNamespaces(node.parent, namespaces, (name) => ["namespace", "alias"].includes(name))?.members;
+            const target = findNamespaces(node.parent, namespaces, ["namespace", "alias"])?.members;
             
             // Only build the callback type declaration if we really must.
             if ((isStatic || hasTypeParams) && !target?.has(node.name.escapedText)) {
