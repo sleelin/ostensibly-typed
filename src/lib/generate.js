@@ -262,7 +262,7 @@ export const generateNamespaceDeclarations = (checker, name, modifier, members, 
                 ts.factory.createExportDefault(node.name),
                 ...Array.from(members.entries(), ([, {node: {name}}]) => ts.factory.createVariableStatement(
                     [ts.factory.createToken(ts.SyntaxKind.ExportKeyword), ts.factory.createToken(ts.SyntaxKind.ConstKeyword)],
-                    ts.factory.createVariableDeclaration(name, undefined, ts.factory.createPropertyAccessExpression(node.name, name))
+                    ts.factory.createVariableDeclaration(name, undefined, ts.factory.createTypeQueryNode(ts.factory.createQualifiedName(node.name, name)))
                 ))
             ] : []),
             ...(!!type ? [
