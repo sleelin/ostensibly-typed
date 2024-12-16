@@ -1,5 +1,5 @@
 import ts from "typescript";
-import {isJSDocAbstractTag, isJSDocTypeParamTag, isStaticModifier} from "./filter";
+import {isJSDocAbstractTag, isJSDocInternalTag, isJSDocTypeParamTag, isStaticModifier} from "./filter";
 
 /**
  * Traverse to a given namespace in a map, then take some kind of action
@@ -25,7 +25,7 @@ export const findNamespaces = (node, target, tagNames = [], whenFound = (_, e) =
         // If more parts, keep digging
         if (namespace.length) target = target.get(part).members;
         // Otherwise, either return found target value, or do something to update the target value and return it
-        else return (typeof node === "string" ? target : target.set(part, whenFound({name, type, node}, target.get(part)))).get(part);
+        else return (typeof whenFound !== "function" ? target : target.set(part, whenFound({name, type, node}, target.get(part)))).get(part);
     }
 };
 
@@ -73,10 +73,16 @@ export const resolveImplicitTypeDefs = (checker, node, namespaces) => {
     for (let doc of (node.jsDoc ?? [])) {
         // Grab any JSDoc annotations that are probably type declarations...
         for (let tag of (doc.tags ?? []).filter((t) => ts.isJSDocCallbackTag(t) || ts.isJSDocTypedefTag(t) || ts.isJSDocEnumTag(t))) {
-            // ...find their parent namespace...
-            if (tag.comment) findNamespaces(getNamespaceNameForTag(tag) || tag.comment.replace(/~.*$/, "") || checker.typeToString(checker.getTypeFromTypeNode(tag.typeExpression.type)), namespaces)
-                // ...and save them for later!
-                ?.members?.set(tag.comment.replace(/^.*?~/, ""), {node: tag, source: node});
+            // ...but only if they aren't internal
+            if (!doc.tags.some(isJSDocInternalTag)) {
+                // Then, find their parent namespace...
+                if (tag.comment) findNamespaces(getNamespaceNameForTag(tag) || tag.comment.replace(/~.*$/, "") || checker.typeToString(checker.getTypeFromTypeNode(tag.typeExpression.type)), namespaces)
+                    // ...and save them for later!
+                    ?.members?.set(tag.comment.replace(/^.*?~/, ""), {node: tag, source: node});
+                // If no comment, consider the type expression instead
+                else if (tag.typeExpression)
+                    findNamespaces(getNamespaceNameForTag(tag), namespaces, null, () => ({node: tag, source: node}));
+            }
         }
         
         // See if there's any JSDoc @template or @typeParam tags

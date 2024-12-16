@@ -17,6 +17,10 @@ export default function ostensiblyTyped(config = {}) {
             if (ts.isClassDeclaration(node)) {
                 findNamespaces(node, namespaces, ["namespace", "alias"], ({type, node}, existing = {}) => ({type, node, ...existing, source: node}));
                 findNamespaces(node, modules, ["module"], ({node}) => ts.getAllJSDocTags(node, ({tagName: {escapedText} = {}}) => escapedText === "namespace").shift()?.comment);
+                
+                if (node.name.escapedText === defaultExport && !namespaces.has(defaultExport)) {
+                    namespaces.set(defaultExport, {type: "alias", node, members: new Map()});
+                }
             }
             
             resolveImplicitTypeDefs(checker, node, namespaces);

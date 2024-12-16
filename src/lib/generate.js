@@ -1,6 +1,6 @@
 import ts from "typescript";
 import {findNamespaces, getNamespaceNameForTag, resolveActualType, resolveNodeLocals, resolveVirtualTags} from "./parse.js";
-import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isJSDocThrowsTag, isOptionalType, isStaticModifier} from "./filter";
+import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isJSDocThrowsTag, isConstructableType, isOptionalType, isStaticModifier, isExtendsClause} from "./filter";
 import {annotateFunction, annotateMethod, annotateProp} from "./annotate.js";
 
 /**
@@ -258,7 +258,7 @@ const generateMemberDeclaration = (checker, node, namespaces) => {
 export const generateNamespaceDeclarations = (checker, name, modifier, members, namespaces = members) => ts.factory.createModuleDeclaration(
     [ts.factory.createToken(modifier)], name, ts.factory.createModuleBlock(
         Array.from(members.entries(), ([name, {type, node, members, source}]) => ([
-            ...(modifier === ts.SyntaxKind.DeclareKeyword ? [
+            ...(modifier === ts.SyntaxKind.DeclareKeyword && !!members ? [
                 ts.factory.createExportDefault(node.name),
                 ...Array.from(members.entries(), ([, {node: {name}}]) => ts.factory.createVariableStatement(
                     [ts.factory.createToken(ts.SyntaxKind.ExportKeyword), ts.factory.createToken(ts.SyntaxKind.ConstKeyword)],
@@ -278,7 +278,7 @@ export const generateNamespaceDeclarations = (checker, name, modifier, members, 
             ] : node ? [
                 ...(ts.isJSDocCallbackTag(node) ? annotateFunction(node) : annotateProp(node.parent)),
                 ts.factory.createTypeAliasDeclaration(
-                    node.parent.tags?.some(ts.isJSDocPrivateTag) ? [] : [ts.factory.createToken(modifier)],
+                    node.parent.tags?.some(ts.isJSDocPrivateTag) ? [] : [ts.factory.createToken(ts.SyntaxKind.ExportKeyword)],
                     ts.factory.createIdentifier(name),
                     generateTypeParameterDeclarations(checker, node.locals),
                     generateTypeDeclaration(checker, node, source)
