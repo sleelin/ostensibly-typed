@@ -208,23 +208,6 @@ const generateTypeDeclaration = (checker, node, source) => (
 );
 
 /**
- * Generate heritage clauses for a class, using both explicit clauses and JSDoc heritage clause tags
- * @param {ts.ClassDeclaration} node - the class to generate heritage clauses for
- * @returns {[ts.HeritageClause,ts.HeritageClause]} extends and implements heritage clauses for the given class
- */
-const generateClassHeritageClauses = (node) => ([
-    ts.factory.createHeritageClause(
-        ts.SyntaxKind.ExtendsKeyword, Array.from(new Map([
-            ...(node.heritageClauses?.find(({token}) => token === ts.SyntaxKind.ExtendsKeyword)?.types ?? []),
-            ...ts.getAllJSDocTags(node, isJSDocExtendsTag).map((tag) => tag.class)
-        ].map((type) => ([ts.isIdentifier(type.expression) ? type.expression.escapedText : type.expression.name?.escapedText, type]))).values())
-    ),
-    ts.factory.createHeritageClause(
-        ts.SyntaxKind.ImplementsKeyword, ts.getAllJSDocTags(node, ts.isJSDocImplementsTag).map((tag) => tag.class)
-    )
-]);
-
-/**
  * Generate annotation and declarations for various types of class member
  * @param {ts.TypeChecker} checker - the TypeScript program's type checker
  * @param {ts.Node} node - the class member to annotate and declare
@@ -247,6 +230,58 @@ const generateMemberDeclaration = (checker, node, namespaces) => {
 };
 
 /**
+ * Generate heritage clauses for a class, using both explicit clauses and JSDoc heritage clause tags
+ * @param {ts.TypeChecker} checker - the TypeScript program's type checker
+ * @param {ts.ClassDeclaration} node - the class to generate heritage clauses for
+ * @param {Boolean} [isInterface=false] - whether the heritage clauses are being generated for an interface declaration
+ * @returns {[ts.HeritageClause,ts.HeritageClause]} extends and implements heritage clauses for the given class
+ */
+const generateClassHeritageClauses = (checker, node, isInterface = false) => ([
+    ts.factory.createHeritageClause(
+        ts.SyntaxKind.ExtendsKeyword, Array.from(new Map([
+            // Make sure the type being extended is something that TypeScript won't complain about!
+            ...(node.heritageClauses?.find(isExtendsClause)?.types ?? []).flatMap((node) => ((isConstructableType(checker, node) ^ isInterface) ? node : [])),
+            ...ts.getAllJSDocTags(node, isJSDocExtendsTag).map((tag) => tag.class)
+        ].map((type) => ([ts.isIdentifier(type.expression) ? type.expression.escapedText : type.expression.name?.escapedText, type]))).values())
+    ),
+    ts.factory.createHeritageClause(
+        ts.SyntaxKind.ImplementsKeyword, ts.getAllJSDocTags(node, ts.isJSDocImplementsTag).map((tag) => tag.class)
+    )
+]);
+
+/**
+ * Generate an interface declaration for a class that extends a type that is not constructable
+ * @param {ts.TypeChecker} checker - the TypeScript program's type checker
+ * @param {ts.ClassDeclaration} node - the class to generate interface declaration for
+ * @returns {ts.InterfaceDeclaration[]} the generated interface declaration
+ */
+const generateInterfaceDeclaration = (checker, node) => (node.heritageClauses?.find(isExtendsClause)?.types?.some((node) => !isConstructableType(checker, node)) ? [
+    ts.factory.createInterfaceDeclaration(
+        node.modifiers.filter(({kind}) => kind !== ts.SyntaxKind.DefaultKeyword), node.name,
+        generateTypeParameterDeclarations(checker, resolveNodeLocals(node)),
+        generateClassHeritageClauses(checker, node, true).filter(({types}) => types?.length)
+    )
+] : []);
+
+/**
+ * Generate a class declaration for a given class
+ * @param {ts.TypeChecker} checker - the TypeScript program's type checker
+ * @param {ts.ClassDeclaration} node - the class to generate class declaration for
+ * @param {String} type - whether the given class is marked as a namespace or a plain class
+ * @param {Map<string, any>} namespaces - where to source inherited declaration details from
+ * @returns {(ts.InterfaceDeclaration|ts.ClassDeclaration)[]} the generated class declaration
+ */
+const generateClassDeclaration = (checker, node, type, namespaces) => (filterMembers(type, node.members).length ? [
+    ...generateInterfaceDeclaration(checker, node),
+    ts.factory.createClassDeclaration(
+        node.modifiers.filter(({kind}) => kind !== ts.SyntaxKind.DefaultKeyword), node.name,
+        generateTypeParameterDeclarations(checker, resolveNodeLocals(node)),
+        generateClassHeritageClauses(checker, node).filter(({types}) => types?.length),
+        ts.factory.createNodeArray(filterMembers(type, node.members).flatMap(node => generateMemberDeclaration(checker, node, namespaces)))
+    )
+] : []);
+
+/**
  * Recursively generate module and namespace declarations from a given set of structured definitions
  * @param {ts.TypeChecker} checker - the TypeScript program's type checker
  * @param {ts.StringLiteral} name - string literal identifier for this namespace/module declaration
@@ -266,14 +301,7 @@ export const generateNamespaceDeclarations = (checker, name, modifier, members, 
                 ))
             ] : []),
             ...(!!type ? [
-                ...(filterMembers(type, node.members).length ? [
-                    ts.factory.createClassDeclaration(
-                        node.modifiers.filter(({kind}) => kind !== ts.SyntaxKind.DefaultKeyword), node.name,
-                        generateTypeParameterDeclarations(checker, resolveNodeLocals(node)),
-                        generateClassHeritageClauses(node).filter(({types}) => types?.length),
-                        ts.factory.createNodeArray(filterMembers(type, node.members).flatMap(node => generateMemberDeclaration(checker, node, namespaces)))
-                    )
-                ] : []),
+                ...generateClassDeclaration(checker, node, type, namespaces),
                 ...(members?.size ? [generateNamespaceDeclarations(checker, ts.factory.createIdentifier(name), ts.SyntaxKind.ExportKeyword, members, namespaces)] : [])
             ] : node ? [
                 ...(ts.isJSDocCallbackTag(node) ? annotateFunction(node) : annotateProp(node.parent)),

@@ -23,6 +23,17 @@ export const /** @type {Function} */ isJSDocThrowsTag = getTagNameComparisonMeth
 export const /** @type {Function} */ isJSDocTypeParamTag = getTagNameComparisonMethod("typeparam");
 
 /**
+ * Check whether the type for the given node can be instantiated
+ * @param {ts.TypeChecker} checker - the TypeScript program's type checker
+ * @param {ts.Node} node - the node to check type for
+ * @returns {Boolean} whether the given node's type has a constructor or new property
+ */
+export const isConstructableType = (checker, node) => {
+    const type = checker.getTypeFromTypeNode(node);
+    return (!!type.intrinsicName || checker.getTypeOfSymbolAtLocation(type.getSymbol(), type.getSymbol().valueDeclaration).isClassOrInterface());
+};
+
+/**
  * Check whether a given node represents an optional type
  * @param {ts.JSDocTag} node - the node being tested
  * @returns {Boolean} whether the node represents an optional type
@@ -35,6 +46,13 @@ export const isOptionalType = (node) => (node.isBracketed || (node.typeExpressio
  * @returns {Boolean} whether the node was a static modifier
  */
 export const isStaticModifier = ({kind}) => (kind === ts.SyntaxKind.StaticKeyword);
+
+/**
+ * Check whether a given heritage node is for the extends keyword
+ * @param {ts.Modifier} node - modifier whose token should be checked
+ * @returns {Boolean} whether the node was an extends clause
+ */
+export const isExtendsClause = ({token}) => (token === ts.SyntaxKind.ExtendsKeyword);
 
 /**
  * Remove any private, internal, unnamed, or otherwise irrelevant members from a class

@@ -22,6 +22,8 @@ export function generateDeclarations({moduleName, defaultExport, compilerOptions
     const saneOptions = !!(moduleName && defaultExport);
     const sourceFiles = new Map();
     let entryFiles,
+        isExternal,
+        externalModules,
         assetReference;
     
     return {
@@ -32,10 +34,12 @@ export function generateDeclarations({moduleName, defaultExport, compilerOptions
             // Expose method of retrieving generated asset reference
             getAssetReference: () => assetReference
         },
-        buildStart() {
+        buildStart({external}) {
             // Empty out all previous source and entry files
             sourceFiles.clear();
             entryFiles = [];
+            externalModules = [];
+            isExternal = external;
             
             if (!moduleName) this.warn("Generator disabled, missing required 'moduleName' config property");
             if (!defaultExport) this.warn("Generator disabled, missing required 'defaultExport' config property");
@@ -44,7 +48,10 @@ export function generateDeclarations({moduleName, defaultExport, compilerOptions
             if (saneOptions) {
                 // Store source and entry files for generator
                 if (!info.isExternal) sourceFiles.set(info.id, info.code);
-                if (info.isEntry) entryFiles.push(info.id);
+                if (info.isEntry) {
+                    entryFiles.push(info.id);
+                    externalModules.push(...info.importedIds.filter(isExternal));
+                }
             }
         },
         buildEnd() {
@@ -53,7 +60,7 @@ export function generateDeclarations({moduleName, defaultExport, compilerOptions
                 type: "asset",
                 fileName: `${assetName}.d.ts`,
                 // Generate the declaration file!
-                source: docsToDefinitions({moduleName, defaultExport, sourceFiles, entryFiles, compilerOptions})
+                source: docsToDefinitions({moduleName, defaultExport, sourceFiles, entryFiles, compilerOptions, externalModules})
             });
         }
     };
