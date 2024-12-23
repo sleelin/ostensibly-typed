@@ -56,6 +56,13 @@ export const isStaticModifier = ({kind}) => (kind === ts.SyntaxKind.StaticKeywor
 export const isExtendsClause = ({token}) => (token === ts.SyntaxKind.ExtendsKeyword);
 
 /**
+ * Check whether a given get accessor has a corresponding set accessor
+ * @param {ts.Node} node - the node to find a matching set accessor for
+ * @returns {Boolean} whether the node can be described as read-only
+ */
+export const isReadOnlyAccessor = (node) => !node?.parent?.members?.some((m) => ts.isSetAccessor(m) && m.name?.escapedText === node.name.escapedText);
+
+/**
  * Remove any private, internal, unnamed, or otherwise irrelevant members from a class
  * @param {String} type - what kind of class is being declared
  * @param {ts.Node[]} members - all members defined for a class

@@ -1,6 +1,6 @@
 import ts from "typescript";
 import {findNamespaces, getNamespaceNameForTag, resolveActualType, resolveNodeLocals, resolveVirtualTags} from "./parse.js";
-import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isJSDocThrowsTag, isConstructableType, isOptionalType, isStaticModifier, isExtendsClause} from "./filter";
+import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isJSDocThrowsTag, isConstructableType, isOptionalType, isReadOnlyAccessor, isStaticModifier, isExtendsClause} from "./filter";
 import {annotateFunction, annotateMethod, annotateProp} from "./annotate.js";
 
 /**
@@ -89,7 +89,9 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
         
         return [
             ...annotateMethod(node),
-            ts.isGetAccessorDeclaration(node) ? (
+            ts.isGetAccessorDeclaration(node) ? isReadOnlyAccessor(node) ? (
+                ts.factory.createPropertyDeclaration([...modifiers, ts.factory.createToken(ts.SyntaxKind.ReadonlyKeyword)], node.name, questionToken, resolveActualType(checker, type))
+            ) : (
                 ts.factory.createGetAccessorDeclaration(modifiers, node.name, parameters, resolveActualType(checker, type))
             ) : (
                 ts.factory.createSetAccessorDeclaration(modifiers, node.name, parameters)
