@@ -143,7 +143,7 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
  * @param {ts.JSDocTypeExpression} typeExpression - the JSDoc type expression of a JSDoc typedef tag
  * @returns {ts.TypeLiteralNode} an accurately typed declaration of the JSDoc type expression
  */
-const generateTypeDefType = (checker, typeExpression) => ts.factory.createTypeLiteralNode(
+const generateTypeDefType = (checker, typeExpression) => typeExpression.jsDocPropertyTags ? ts.factory.createTypeLiteralNode(
     typeExpression.jsDocPropertyTags.flatMap((node) => ([
         ...annotateProp(node),
         ts.factory.createPropertySignature(
@@ -158,6 +158,8 @@ const generateTypeDefType = (checker, typeExpression) => ts.factory.createTypeLi
             )
         )
     ]))
+) : (
+    resolveActualType(checker, typeExpression?.type)
 );
 
 /**
@@ -277,7 +279,9 @@ const generateClassDeclaration = (checker, node, type, namespaces) => (filterMem
         node.modifiers.filter(({kind}) => kind !== ts.SyntaxKind.DefaultKeyword), node.name,
         generateTypeParameterDeclarations(checker, resolveNodeLocals(node)),
         generateClassHeritageClauses(checker, node).filter(({types}) => types?.length),
-        ts.factory.createNodeArray(filterMembers(type, node.members).flatMap(node => generateMemberDeclaration(checker, node, namespaces)))
+        ts.factory.createNodeArray([
+            ...filterMembers(type, node.members).flatMap(node => generateMemberDeclaration(checker, node, namespaces))
+        ])
     )
 ] : []);
 
