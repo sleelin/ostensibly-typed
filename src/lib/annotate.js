@@ -1,4 +1,5 @@
 import ts from "typescript";
+import {isJSDocTypeAnnotationTag} from "./filter.js";
 
 /**
  * Standardise a JSDoc comment to TSDoc format
@@ -16,7 +17,7 @@ export const standardiseComment = (comment) => comment.replace(/^([-*]\s+)?(.)(.
 export const annotateParams = (tags, returns) => tags?.filter((tag) => ts.isJSDocParameterTag(tag))
     .map((tag) => ([tag, ...(ts.isJSDocTypeLiteral(tag.typeExpression.type) ? tag.typeExpression.type.jsDocPropertyTags : [])])).flat()
     .map((tag) => ts.factory.createJSDocParameterTag(tag.tagName, tag.name, false, undefined, tag.isNameFirst, standardiseComment(ts.getTextOfJSDocComment(tag.comment))))
-    .concat(...(returns ? ts.getTextOfJSDocComment(returns.comment).split("\n").map((c) => ts.factory.createJSDocReturnTag(returns.tagName, undefined, standardiseComment(c))) : []));
+    .concat(...(returns?.comment ? ts.getTextOfJSDocComment(returns.comment).split("\n").map((c) => ts.factory.createJSDocReturnTag(returns.tagName, undefined, standardiseComment(c))) : []));
 
 /**
  * Annotate a single property of a type or class
@@ -30,7 +31,7 @@ export const annotateProp = (prop) => (prop?.comment ? [ts.factory.createJSDocCo
  * @param {ts.ConstructorDeclaration|ts.MethodDeclaration|ts.AccessorDeclaration} node - the class method or property accessor to annotate
  * @returns {JSDoc[]} the documentation comment describing the method
  */
-export const annotateMethod = (node) => (node.jsDoc ?? []).flatMap(({comment, tags}) => ((comment && !tags?.some(ts.isJSDocOverloadTag)) || tags?.some((tag) => ts.isJSDocParameterTag(tag) && tag.comment)) ? [ts.factory.createJSDocComment(comment, annotateParams(tags, tags.find(ts.isJSDocReturnTag)))] : []);
+export const annotateMethod = (node) => (node.jsDoc ?? []).flatMap(({comment, tags}) => ((comment && !tags?.some(isJSDocTypeAnnotationTag)) || tags?.some((tag) => ts.isJSDocParameterTag(tag) && tag.comment)) ? [ts.factory.createJSDocComment(comment, annotateParams(tags, tags.find(ts.isJSDocReturnTag)))] : []);
 
 /**
  * Annotate a function type expression, including parameters and return value
