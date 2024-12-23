@@ -152,7 +152,7 @@ export const resolveActualType = (checker, node, isAsync = false) => {
             // Also go through and resolve TypeReference type arguments...
             case ts.SyntaxKind.TypeReference:
                 // ...but only if TypeScript managed to guess some useful type reference
-                if (guessed.typeName) return ts.factory.createTypeReferenceNode(guessed.typeName, node.typeArguments && node.typeArguments.map((t) => resolveActualType(checker, t)));
+                if (ts.isQualifiedName(node.typeName) || guessed.typeName) return ts.factory.createTypeReferenceNode(guessed.typeName ?? node.typeName, node.typeArguments && node.typeArguments.map((t) => resolveActualType(checker, t)));
             
             // Otherwise, the TypeReference might actually be a primitive (╯°O°)╯︵ ┻━┻
             default: {
