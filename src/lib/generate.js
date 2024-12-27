@@ -181,19 +181,19 @@ const generateEnumType = (typeExpression, source) => ts.factory.createUnionTypeN
 /**
  * Generate a function type from a JSDoc callback tag
  * @param {ts.TypeChecker} checker - the TypeScript program's type checker
- * @param {ts.JSDocCallbackTag} typeExpression - the callback tag's type expression declaration
+ * @param {ts.JSDocCallbackTag} node - the callback tag node
  * @param {ts.Node} source - original node associated with the callback tag
  * @returns {ts.FunctionTypeNode} function type declaration for the callback tag
  */
-const generateCallbackType = (checker, typeExpression, source) => ts.factory.createFunctionTypeNode(
-    typeExpression.typeParameters,
-    typeExpression.parameters?.map((node) => ts.factory.createParameterDeclaration(
+const generateCallbackType = (checker, node, source) => ts.factory.createFunctionTypeNode(
+    node.typeExpression.typeParameters?.length ? generateTypeParameterDeclarations(checker, resolveNodeLocals(node.parent)) : undefined,
+    node.typeExpression.parameters?.map((node) => ts.factory.createParameterDeclaration(
         undefined, undefined, node.name,
         isOptionalType(node) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
         node.type ?? resolveActualType(checker, node.typeExpression?.type ?? node?.type ?? node),
         undefined
     )),
-    resolveActualType(checker, typeExpression.type, source?.modifiers?.some(({kind}) => kind === ts.SyntaxKind.AsyncKeyword))
+    resolveActualType(checker, node.typeExpression.type, source?.modifiers?.some(({kind}) => kind === ts.SyntaxKind.AsyncKeyword))
 );
 
 /**
@@ -207,7 +207,7 @@ const generateTypeDeclaration = (checker, node, source) => (
     ts.isJSDocTypedefTag(node) ? generateTypeDefType(checker, node.typeExpression) :
     ts.isJSDocTypeLiteral(node) ? generateTypeDefType(checker, node) :
     ts.isJSDocEnumTag(node) ? generateEnumType(node.typeExpression, source) :
-    ts.isJSDocCallbackTag(node) ? generateCallbackType(checker, node.typeExpression, source) :
+    ts.isJSDocCallbackTag(node) ? generateCallbackType(checker, node, source) :
     undefined
 );
 

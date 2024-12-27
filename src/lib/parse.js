@@ -87,12 +87,12 @@ export const resolveImplicitTypeDefs = (checker, node, namespaces) => {
         
         // See if there's any JSDoc @template or @typeParam tags
         const hasTemplates = doc.tags?.some(t => ts.isJSDocTemplateTag(t) || isJSDocTypeParamTag(t));
+        // See if the node is a static class member, then see if there's specifically any @typeParam tags
+        const isStatic = node.modifiers?.some(isStaticModifier);
+        const hasTypeParams = hasTemplates && doc.tags.some(isJSDocTypeParamTag);
         
         // If so, and it's not marked as private, it's probably an implicit callback type declaration
-        if (hasTemplates && doc.tags.some(isJSDocAbstractTag) && !(doc.tags.some(ts.isJSDocPrivateTag) || ts.isPrivateIdentifier(node.name))) {
-            // See if the node is a static class member, then see if there's specifically any @typeParam tags
-            const isStatic = node.modifiers?.some(isStaticModifier);
-            const hasTypeParams = hasTemplates && doc.tags.some(isJSDocTypeParamTag);
+        if (hasTemplates && (hasTypeParams || doc.tags.some(isJSDocAbstractTag)) && !(doc.tags.some(ts.isJSDocPrivateTag) || ts.isPrivateIdentifier(node.name))) {
             // Find the parent namespace so we can save the declaration for later!
             const target = findNamespaces(node.parent, namespaces, ["namespace", "alias"])?.members;
             
@@ -102,10 +102,10 @@ export const resolveImplicitTypeDefs = (checker, node, namespaces) => {
                 const templates = (!(isStatic || hasTypeParams) ? doc.tags.filter(ts.isJSDocTemplateTag) : resolveVirtualTags("template", doc.tags.filter(isJSDocTypeParamTag)))?.flatMap(({typeParameters}) => typeParameters);
                 const typeParams = templates?.filter(({name}) => !node.parent?.locals?.has(name?.escapedText));
                 // Create a new JSDoc signature for the callback, then create the callback!
-                const signature = ts.factory.createJSDocSignature(typeParams, doc.tags.filter(ts.isJSDocParameterTag), doc.tags.find(ts.isJSDocReturnTag));
+                const signature = ts.factory.createJSDocSignature(typeParams.map(({parent}) => parent), doc.tags.filter(ts.isJSDocParameterTag), doc.tags.find(ts.isJSDocReturnTag));
                 const tag = ts.factory.createJSDocCallbackTag(undefined, signature);
                 // Wrap the whole thing in a parent comment
-                const parent = ts.factory.createJSDocComment(ts.getTextOfJSDocComment(doc.comment), [tag, ts.factory.createJSDocPrivateTag()]);
+                const parent = ts.factory.createJSDocComment(ts.getTextOfJSDocComment(doc.comment), [...signature.typeParameters, tag, ts.factory.createJSDocPrivateTag()]);
                 // Do some magic to get locally declared type arguments
                 const localTypes = [tag.typeExpression.type, ...tag.typeExpression.parameters]
                     .flatMap(({typeExpression} = {}) => typeExpression?.type?.types ?? typeExpression?.type ?? [])
