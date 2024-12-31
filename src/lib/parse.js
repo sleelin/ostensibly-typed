@@ -1,5 +1,5 @@
 import ts from "typescript";
-import {isJSDocAbstractTag, isJSDocInternalTag, isJSDocTypeParamTag, isStaticModifier} from "./filter";
+import {isJSDocAbstractTag, isJSDocInternalTag, isJSDocPropertyTag, isJSDocTypeParamTag, isStaticModifier} from "./filter";
 
 /**
  * Traverse to a given namespace in a map, then take some kind of action
@@ -41,13 +41,22 @@ export const getNamespaceNameForTag = (tag) => {
 };
 
 /**
+ * Resolve the fully qualified string value of a node's name, recursing into any qualified names
+ * @param {...(ts.Identifier|ts.QualifiedName)} names - identifier or qualified name nodes to resolve
+ * @returns {String} the string value of a name node, including any qualifiers
+ */
+export const resolveQualifiedName = (...names) => names.flatMap((name) => ts.isQualifiedName(name) ? resolveQualifiedName(name.left, name.right) : name.escapedText).join(".");
+
+/**
  * Re-evaluate a given set of JSDoc tags as some other kind of tag
  * @param {String} type - what synonymous tag should be used in-situ when determining actual tag type
  * @param {ts.JSDocTag[]} [tags] - "unknown" tags to re-evaluate as some other kind of tag
  * @returns {ts.JSDocTag[]} the re-evaluated tags, hopefully with expected type and metadata
  */
 export const resolveVirtualTags = (type, tags) => ((tags?.length && ts.createSourceFile(".js", [`/**`, ...(type.match(/^prop(erty)?$/) ? [" * @typedef"] : []), ...tags.map(({comment}) => ` * @${type} ${ts.getTextOfJSDocComment(comment)}`), ` */`].join("\r\n"), ts.ScriptTarget.Latest, true)
-    .endOfFileToken.jsDoc?.shift().tags) || []);
+    // Look for set of JSDoc tags only, then if virtual tag was a type definition, handle understructured property tags
+    .endOfFileToken.jsDoc?.shift().tags) || []).map((node) => !(node && ts.isJSDocTypedefTag(node) && ts.isJSDocTypeLiteral(node.typeExpression) && node.typeExpression.jsDocPropertyTags.some(({name}) => ts.isQualifiedName(name)))
+    ? node : ts.factory.updateJSDocTypedefTag(node, node.tagName, ts.factory.updateJSDocTypeLiteral(node.typeExpression, resolveUnderstructuredTags(node.typeExpression.jsDocPropertyTags))));
 
 /**
  * Merge JSDoc template tags with node local declarations
@@ -62,6 +71,25 @@ export const resolveNodeLocals = (node) => new Map([
         .flatMap(({typeParameters}) => typeParameters)
         .map((param) => ([param.name.escapedText, {declarations: [param]}]))
 ]);
+
+/**
+ * Resolve the structure of a type annotation when a property-like tag has child properties and extends anything other than "object"
+ * @param {ts.JSDocPropertyLikeTag[]} tags - parameter or property tags to restructure
+ * @param {String} [name] - the fully qualified name of the containing property-like tag
+ * @returns {ts.JSDocPropertyLikeTag[]} the correctly structured parameter or property tags
+ */
+export const resolveUnderstructuredTags = (tags, name) => tags.filter((tag) => !ts.isQualifiedName(tag.name) || (name && resolveQualifiedName(tag.name.left).startsWith(name))).map((tag) => ([
+    // Find any unhandled tags that should be properties of this tag (i.e. children)
+    tag, tags.filter((t) => ts.isQualifiedName(t.name) && resolveQualifiedName(t.name.left) === resolveQualifiedName(tag.name))
+])).map(([tag, children]) => !children.length ? tag : (isJSDocPropertyTag(tag) ? ts.factory.createJSDocPropertyTag : ts.factory.createJSDocParameterTag)(
+    tag.tagName, tag.name, tag.isBracketed,
+    // If there were children, create a new intersection type with a new structured literal
+    ts.factory.createJSDocTypeExpression(ts.factory.createIntersectionTypeNode([
+        tag.typeExpression.type, ts.factory.createJSDocTypeLiteral(resolveUnderstructuredTags(children, resolveQualifiedName(tag.name)))
+    ])),
+    tag.isNameFirst,
+    tag.comment
+));
 
 /**
  * Extract any type definitions, callbacks, or class method types hiding in JSDoc comments
@@ -143,9 +171,11 @@ export const resolveActualType = (checker, node, isAsync = false) => {
             case ts.SyntaxKind.TypeQuery:
                 return node;
             
-            // Go through and resolve Union/Array type argument types
+            // Go through and resolve Union/Intersection/Array type argument types
             case ts.SyntaxKind.UnionType:
                 return ts.factory.createUnionTypeNode(node.types.map((t) => resolveActualType(checker, t)));
+            case ts.SyntaxKind.IntersectionType:
+                return ts.factory.createIntersectionTypeNode(node.types.map((t) => resolveActualType(checker, t)));
             case ts.SyntaxKind.ArrayType:
                 return ts.factory.createArrayTypeNode(resolveActualType(checker, node.elementType));
             

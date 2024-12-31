@@ -24,7 +24,7 @@ export const annotateParams = (tags, returns) => tags?.filter((tag) => ts.isJSDo
  * @param {ts.JSDoc} prop - the property to annotate
  * @returns {ts.JSDoc[]} the annotated property
  */
-export const annotateProp = (prop) => (prop?.comment ? [ts.factory.createJSDocComment(standardiseComment(ts.getTextOfJSDocComment(prop.comment)), [])] : []);
+export const annotateProp = (prop) => (prop?.comment && !ts.isJSDocParameterTag(prop) ? [ts.factory.createJSDocComment(standardiseComment(ts.getTextOfJSDocComment(prop.comment)), [])] : []);
 
 /**
  * Annotate a class method or property accessor, including parameters and return value

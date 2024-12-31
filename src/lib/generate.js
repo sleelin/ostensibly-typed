@@ -1,5 +1,5 @@
 import ts from "typescript";
-import {findNamespaces, getNamespaceNameForTag, resolveActualType, resolveNodeLocals, resolveVirtualTags} from "./parse.js";
+import {findNamespaces, getNamespaceNameForTag, resolveActualType, resolveNodeLocals, resolveVirtualTags, resolveUnderstructuredTags, resolveQualifiedName} from "./parse.js";
 import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isJSDocThrowsTag, isConstructableType, isOptionalType, isReadOnlyAccessor, isStaticModifier, isExtendsClause} from "./filter";
 import {annotateFunction, annotateMethod, annotateProp} from "./annotate.js";
 
@@ -18,16 +18,59 @@ const generateTypeParameterDeclarations = (checker, locals) => (locals && Array.
 );
 
 /**
+ * Potentially wrap a given type in an Array type reference
+ * @param {ts.Node} type - the underlying type to be wrapped
+ * @param {Boolean} [isArrayType] - whether the type should be wrapped
+ * @returns {ts.Node|ts.TypeReferenceNode} the original type node, or a new Array type reference wrapping the type node
+ */
+const generateArrayTypeWrapper = (type, isArrayType) => !isArrayType ? type : ts.factory.createTypeReferenceNode(ts.factory.createIdentifier("Array"), [type]);
+
+/**
+ * Generate a type node for the given type, handling intersection types and additional emit flags
+ * @param {ts.TypeChecker} checker - the TypeScript program's type checker
+ * @param {ts.Node} node - the original node whose type needs generating
+ * @param {ts.EmitFlags} [flags] - any additional emit flags to set on the node
+ * @returns {ts.IntersectionTypeNode|ts.TypeNode} the newly generated or resolved type
+ */
+const generateTypeNode = (checker, node, flags) => node?.typeExpression && ts.isJSDocTypeExpression(node.typeExpression) && ts.isIntersectionTypeNode(node.typeExpression.type) ? (
+    // Translate JSDoc intersection type expressions into their real types
+    ts.factory.createIntersectionTypeNode([node.typeExpression.type.types.at(0), generateTypeNode(checker, node.typeExpression.type.types.at(1), flags)])
+) : node?.typeExpression?.type ? (
+    ts.isJSDocTypeLiteral(node.typeExpression.type) ? (
+        // Generate type literals from JSDoc type literals
+        generateArrayTypeWrapper(ts.setEmitFlags(generateTypeDefType(checker, node.typeExpression.type), flags), node.typeExpression.type.isArrayType)
+    ) : (
+        // Try to get the best guess type of the node...
+        ts.isTypeNode(node.typeExpression.type) ? (resolveActualType(checker, node.typeExpression.type)) : (generateTypeDeclaration(checker, node.typeExpression.type))
+    )
+) : (
+    // No type expression or type literal, try again with some other guesswork...
+    ts.setEmitFlags(generateTypeDefType(checker, (node && ts.getJSDocTypeTag(node)) ?? node?.typeExpression?.type ?? node?.typeExpression ?? node), flags)
+);
+
+/**
  * Generate parameter declarations for a function using explicit or implied JSDoc parameter definitions
  * @param {ts.TypeChecker} checker - the TypeScript program's type checker
  * @param {ts.ParameterDeclaration[]} params - list of function parameters to generate explicit declarations for
  * @returns {ts.ParameterDeclaration[]} list of function parameters sourced directly and indirectly from JSDoc tags
  */
-const generateParameterDeclarations = (checker, params) => params.map((node) => ([node, ts.isJSDocParameterTag(node) ? [node] : ts.getJSDocParameterTags(node)])).flatMap(([node, tags]) => ts.factory.createParameterDeclaration(
+const generateParameterDeclarations = (checker, params) => params.map((node) => ([
+    // Focus on the specified parameter tag, or handle understructured parameter tag annotations
+    node, ts.isJSDocParameterTag(node) ? [node] : resolveUnderstructuredTags(ts.getAllJSDocTags(node.parent, ts.isJSDocParameterTag).filter((tag) => resolveQualifiedName(tag.name).startsWith(resolveQualifiedName(node.name))))
+])).flatMap(([node, tags]) => ts.factory.createParameterDeclaration(
     node.modifiers, node.dotDotDotToken, node.name,
     tags.some(isOptionalType) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
-    tags.length > 1 ? ts.factory.createUnionTypeNode(tags.map((t) => resolveActualType(checker, t))) : resolveActualType(checker, tags[0]))
-);
+    generateArrayTypeWrapper(
+        tags.length > 1 ? (
+            // Handle parameters with a variadic type
+            ts.factory.createUnionTypeNode(tags.map((t) => generateTypeNode(checker, t, ts.EmitFlags.SingleLine)).map((t) => !!node.dotDotDotToken && ts.isArrayTypeNode(t) ? t.elementType : t))
+        ) : (
+            // Or just get the parameter type
+            generateTypeNode(checker, tags[0], ts.EmitFlags.SingleLine)
+        ),
+        !!node.dotDotDotToken
+    )
+));
 
 /**
  * Generate annotation and declaration for a given property definition
@@ -38,15 +81,9 @@ const generateParameterDeclarations = (checker, params) => params.map((node) => 
 const generatePropertyDeclaration = (checker, node) => ([
     ...annotateProp(ts.isJSDocPropertyTag(node) ? node : node.jsDoc?.slice(-1)?.pop()),
     ts.factory.createPropertyDeclaration(
-        node.modifiers, node.name,
+        node.modifiers, ts.isQualifiedName(node.name) ? node.name.right : node.name,
         isOptionalType(node) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
-        node.typeExpression?.type && ts.isJSDocTypeLiteral(node.typeExpression.type) ? node.typeExpression.type.isArrayType ? (
-            ts.factory.createTypeReferenceNode(ts.factory.createIdentifier("Array"), [generateTypeDefType(checker, node.typeExpression.type)])
-        ) : (
-            generateTypeDefType(checker, node.typeExpression.type)
-        ) : (
-            resolveActualType(checker, ts.getJSDocTypeTag(node) ?? node.typeExpression?.type ?? node.typeExpression)
-        )
+        generateTypeNode(checker, node)
     )
 ]);
 
@@ -112,9 +149,9 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
         const overloads = ts.getAllJSDocTags(node, ts.isJSDocOverloadTag);
         
         return [
+            // Handle @overload annotations for the method
             ...overloads.flatMap((tag) => ([
-                ...annotateFunction(tag),
-                ts.factory.createMethodDeclaration(
+                ...annotateFunction(tag), ts.factory.createMethodDeclaration(
                     modifiers, node.asteriskToken, node.name,
                     isOptionalType(node) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
                     generateTypeParameterDeclarations(checker, resolveNodeLocals(tag.parent)),
@@ -126,8 +163,8 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
                     )
                 )
             ])),
-            ...annotateMethod(node),
-            ts.factory.createMethodDeclaration(
+            // Annotate and declare the method
+            ...annotateMethod(node), ts.factory.createMethodDeclaration(
                 modifiers, node.asteriskToken, node.name, questionToken, !overloads.length ? templates : undefined, parameters,
                 ts.getAllJSDocTags(node, isJSDocThrowsTag).length ? (
                     ts.factory.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword)
@@ -145,23 +182,10 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
  * @param {ts.JSDocTypeExpression} typeExpression - the JSDoc type expression of a JSDoc typedef tag
  * @returns {ts.TypeLiteralNode} an accurately typed declaration of the JSDoc type expression
  */
-const generateTypeDefType = (checker, typeExpression) => typeExpression.jsDocPropertyTags ? ts.factory.createTypeLiteralNode(
-    typeExpression.jsDocPropertyTags.flatMap((node) => ([
-        ...annotateProp(node),
-        ts.factory.createPropertySignature(
-            undefined, ts.isQualifiedName(node.name) ? node.name.right : node.name,
-            isOptionalType(node) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken,
-            ts.isTypeNode(node.typeExpression.type) ? (
-                resolveActualType(checker, node.typeExpression.type)
-            ) : node.typeExpression.type.isArrayType ? (
-                ts.factory.createTypeReferenceNode(ts.factory.createIdentifier("Array"), [generateTypeDeclaration(checker, node.typeExpression.type)])
-            ) : (
-                generateTypeDeclaration(checker, node.typeExpression.type)
-            )
-        )
-    ]))
+const generateTypeDefType = (checker, typeExpression) => typeExpression?.jsDocPropertyTags ? (
+    ts.factory.createTypeLiteralNode(typeExpression.jsDocPropertyTags.flatMap((node) => generatePropertyDeclaration(checker, node)))
 ) : (
-    resolveActualType(checker, typeExpression?.type)
+    resolveActualType(checker, typeExpression?.type ?? typeExpression)
 );
 
 /**
