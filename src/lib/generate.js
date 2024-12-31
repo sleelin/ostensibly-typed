@@ -94,10 +94,15 @@ const generatePropertyDeclaration = (checker, node) => ([
  * @returns {(ts.SyntaxKind.JSDoc|ts.ConstructorDeclaration)[]} annotated properties, constructor annotation and declaration
  */
 const generateConstructorDeclaration = (checker, node) => ([
+    // Declare properties that were described by @parameter tags on a constructor's annotation
     ...(resolveVirtualTags("prop", ts.getAllJSDocTags(node, isJSDocPropertyTag)).shift()?.typeExpression?.jsDocPropertyTags ?? [])
         .flatMap((node) => generatePropertyDeclaration(checker, node)),
-    ...annotateMethod(node),
-    ts.factory.createConstructorDeclaration(node.modifiers, generateParameterDeclarations(checker, node.parameters))
+    // Handle @overload annotations on the constructor
+    ...ts.getAllJSDocTags(node, ts.isJSDocOverloadTag).flatMap((tag) => ([
+        ...annotateFunction(tag), ts.factory.createConstructorDeclaration(undefined, generateParameterDeclarations(checker, tag.typeExpression.parameters))
+    ])),
+    // Annotate and declare the constructor
+    ...annotateMethod(node), ts.factory.createConstructorDeclaration(node.modifiers, generateParameterDeclarations(checker, node.parameters))
 ]);
 
 /**
