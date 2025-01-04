@@ -121,7 +121,9 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
     const questionToken = isOptionalType(node) ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : node.questionToken;
     let type = ts.getJSDocTypeTag(node);
     
+    // Handle property accessor methods with type annotations
     if (ts.isAccessor(node) && (type || implementsTag?.class?.typeArguments?.length)) {
+        // Resolve any inherited types from implements tags
         if (!type && implementsTag?.class?.typeArguments?.length) {
             const {name} = implementsTag.class.expression;
             const source = findNamespaces(getNamespaceNameForTag(implementsTag.class.expression), namespaces).node;
@@ -132,24 +134,32 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
         return [
             ...annotateMethod(node),
             ts.isGetAccessorDeclaration(node) ? isReadOnlyAccessor(node) ? (
+                // If property has no set accessor, declare it as read-only
                 ts.factory.createPropertyDeclaration([...modifiers, ts.factory.createToken(ts.SyntaxKind.ReadonlyKeyword)], node.name, questionToken, resolveActualType(checker, type))
             ) : (
+                // Otherwise, declare get accessor...
                 ts.factory.createGetAccessorDeclaration(modifiers, node.name, parameters, resolveActualType(checker, type))
             ) : (
+                // ...or set accessor
                 ts.factory.createSetAccessorDeclaration(modifiers, node.name, parameters)
             )
         ];
     }
+    // Handle explicitly typed methods...
     else if (type)
+        // ...by treating them as property declarations instead
         return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, questionToken, resolveActualType(checker, type))];
+    // Also treat abstract static methods with templates as properties...
     else if (abstractTag && templates.length && modifiers.some(isStaticModifier)) {
         const name = ts.factory.createQualifiedName(node.parent.name, node.name);
         const type = ts.factory.createTypeReferenceNode(name, Array(templates.length).fill(ts.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)));
         
         return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, questionToken, type)];
     }
+    // ...as well as methods with valid implements tags!
     else if (implementsTag?.class?.typeArguments?.length)
         return [...annotateMethod(node), ts.factory.createPropertyDeclaration(modifiers, node.name, questionToken, implementsTag.class)];
+    // Finally, if all else fails, just declare the method!
     else if (!implementsTag) {
         const overloads = ts.getAllJSDocTags(node, ts.isJSDocOverloadTag);
         
@@ -200,8 +210,10 @@ const generateTypeDefType = (checker, typeExpression) => typeExpression?.jsDocPr
  * @returns {ts.UnionTypeNode} type containing all values converted to type literals
  */
 const generateEnumType = (typeExpression, source) => ts.factory.createUnionTypeNode(
+    // Handle enums with explicit type annotations
     ts.isUnionTypeNode(typeExpression?.type) ? typeExpression.type.types
         .map(({literal: type}) => ts.factory.createLiteralTypeNode(ts.isNumericLiteral(type) ? ts.factory.createNumericLiteral(type.text) : ts.factory.createStringLiteral(type.text)))
+    // Otherwise, see if we can get the types from a property or variable assignment value
     : (ts.isPropertyAssignment(source) ? [source] : source.declarationList.declarations)
         .map(({initializer}) => initializer.elements.map((type) => ts.factory.createLiteralTypeNode(ts.isNumericLiteral(type) ? ts.factory.createNumericLiteral(type.text) : ts.factory.createStringLiteral(type.text))))
         .flatMap((types, _, declarations) => declarations.length > 1 ? ts.factory.createUnionTypeNode(types) : types)
@@ -244,7 +256,7 @@ const generateTypeDeclaration = (checker, node, source) => (
  * Generate annotation and declarations for various types of class member
  * @param {ts.TypeChecker} checker - the TypeScript program's type checker
  * @param {ts.Node} node - the class member to annotate and declare
- * @param {Map<string, any>} namespaces - where to source inherited declaration details from
+ * @param {Map<String, NamespaceMember>} namespaces - where to source inherited declaration details from
  * @returns {(ts.JSDoc|ts.ConstructorDeclaration|ts.GetAccessorDeclaration|ts.SetAccessorDeclaration|ts.PropertyDeclaration|ts.MethodDeclaration)[]} annotated member declaration
  */
 const generateMemberDeclaration = (checker, node, namespaces) => {
@@ -297,10 +309,10 @@ const generateInterfaceDeclaration = (checker, node) => (node.heritageClauses?.f
 ] : []);
 
 /**
- * Generate a class declaration for a given class
+ * Generate a class declaration for a given class, including a possible interface declaration
  * @param {ts.TypeChecker} checker - the TypeScript program's type checker
  * @param {ts.ClassDeclaration} node - the class to generate class declaration for
- * @param {String} type - whether the given class is marked as a namespace or a plain class
+ * @param {MemberType} type - whether the given class is marked as a namespace or a plain class
  * @param {Map<string, any>} namespaces - where to source inherited declaration details from
  * @returns {(ts.InterfaceDeclaration|ts.ClassDeclaration)[]} the generated class declaration
  */
@@ -317,37 +329,118 @@ const generateClassDeclaration = (checker, node, type, namespaces) => (filterMem
 ] : []);
 
 /**
- * Recursively generate module and namespace declarations from a given set of structured definitions
- * @param {ts.TypeChecker} checker - the TypeScript program's type checker
- * @param {ts.StringLiteral} name - string literal identifier for this namespace/module declaration
+ * Generate a module declaration with the given contents
+ * @param {ts.StringLiteral|ts.Identifier} name - string literal identifier for this module declaration
  * @param {ts.SyntaxKind.DeclareKeyword|ts.SyntaxKind.ExportKeyword} modifier - whether the declaration is a top-level module declaration or a nested namespace export
- * @param {Map<string, any>} members - any namespaces or type definitions that should be included in this namespace/module
- * @param {Map<string, any>} [namespaces=members] - the top-level set of structured definitions for sourcing inheritance
- * @returns {ts.ModuleDeclaration} module or namespace declaration with annotation and nested declarations
+ * @param {ts.Node[]} nodes - contents of the module declaration
+ * @returns {ts.ModuleDeclaration} the generated module declaration
  */
-export const generateNamespaceDeclarations = (checker, name, modifier, members, namespaces = members) => ts.factory.createModuleDeclaration(
-    [ts.factory.createToken(modifier)], name, ts.factory.createModuleBlock(
-        Array.from(members.entries(), ([name, {type, node, members, source}]) => ([
-            ...(modifier === ts.SyntaxKind.DeclareKeyword && !!members ? [
-                ts.factory.createExportDefault(node.name),
-                ...Array.from(members.entries(), ([, {node: {name}}]) => ts.factory.createVariableStatement(
-                    [ts.factory.createToken(ts.SyntaxKind.ExportKeyword), ts.factory.createToken(ts.SyntaxKind.ConstKeyword)],
-                    ts.factory.createVariableDeclaration(name, undefined, ts.factory.createTypeQueryNode(ts.factory.createQualifiedName(node.name, name)))
-                ))
-            ] : []),
-            ...(!!type ? [
-                ...generateClassDeclaration(checker, node, type, namespaces),
-                ...(members?.size ? [generateNamespaceDeclarations(checker, ts.factory.createIdentifier(name), ts.SyntaxKind.ExportKeyword, members, namespaces)] : [])
-            ] : node ? [
-                ...(ts.isJSDocCallbackTag(node) ? annotateFunction(node) : annotateProp(node.parent)),
-                ts.factory.createTypeAliasDeclaration(
-                    node.parent.tags?.some(ts.isJSDocPrivateTag) ? [] : [ts.factory.createToken(ts.SyntaxKind.ExportKeyword)],
-                    ts.factory.createIdentifier(name),
-                    generateTypeParameterDeclarations(checker, node.locals),
-                    generateTypeDeclaration(checker, node, source)
-                )
-            ] : [])
-        ])).flat()
-    ),
+const generateModuleDeclaration = (name, modifier, nodes) => ts.factory.createModuleDeclaration(
+    [ts.factory.createToken(modifier)], name, ts.factory.createModuleBlock(nodes),
     modifier === ts.SyntaxKind.ExportKeyword ? ts.NodeFlags.Namespace : undefined
 );
+
+/**
+ * The namespace-containing tag name for a namespace member
+ * @typedef {"namespace"|"alias"} MemberType
+ */
+
+/**
+ * Details of a namespace member declaration
+ * @typedef {Object} NamespaceMember
+ * @prop {MemberType} [type] - name of the namespace-containing tag of the member
+ * @prop {ts.ClassDeclaration} node - the declaration-containing node of the member
+ * @prop {Map<String, NamespaceMember>} members - any resolved children of the member
+ * @prop {ts.Node} [source] - the original node the member was found on
+ */
+
+/**
+ * Recursively generate module and namespace declarations from a given set of structured definitions
+ * @param {ts.TypeChecker} checker - the TypeScript program's type checker
+ * @param {Map<String, NamespaceMember>} members - any namespaces or type definitions that should be included in this namespace/module
+ * @param {Map<String, NamespaceMember>} [namespaces=members] - the top-level set of structured definitions for sourcing inheritance
+ * @returns {ts.ModuleDeclaration} module or namespace declaration with annotation and nested declarations
+ */
+const generateNamespaceDeclarations = (checker, members, namespaces = members) => Array.from(members.entries(), ([name, {type, node, members, source}]) => ([
+    ...(!!type ? [
+        // Generate an annotated class declaration, and recurse into any namespaced member declarations
+        ...generateClassDeclaration(checker, node, type, namespaces),
+        ...(members?.size ? [generateModuleDeclaration(ts.factory.createIdentifier(name), ts.SyntaxKind.ExportKeyword, generateNamespaceDeclarations(checker, members, namespaces))] : [])
+    ] : node ? [
+        // Annotate and generate any namespace member declarations
+        ...(ts.isJSDocCallbackTag(node) ? annotateFunction(node) : annotateProp(node.parent)),
+        ts.factory.createTypeAliasDeclaration(
+            node.parent.tags?.some(ts.isJSDocPrivateTag) ? [] : [ts.factory.createToken(ts.SyntaxKind.ExportKeyword)],
+            ts.factory.createIdentifier(name),
+            generateTypeParameterDeclarations(checker, node.locals),
+            generateTypeDeclaration(checker, node, source)
+        )
+    ] : [])
+])).flat();
+
+/**
+ * External modules to be imported in the primary module declaration
+ * @typedef {Object} ModuleImport
+ * @prop {Set<String>} names - what the external modules should be imported as
+ * @prop {Set<String>} bindings - any directly imported members of the external module
+ */
+
+/**
+ * Generate import declarations for external modules
+ * @param {Map<String, ModuleImport>} imports - external modules that are imported
+ * @returns {ts.ImportDeclaration[]} import declarations for external modules
+ */
+const generateModuleImports = (imports) => Array.from(imports?.entries() ?? []).flatMap(([name, {names, bindings}]) => Array.from(names.values(), (binding, index) => ts.factory.createImportDeclaration(
+    undefined,
+    ts.factory.createImportClause(false, ts.factory.createIdentifier(binding), index > 0 || !bindings.size ? undefined : ts.factory.createNamedImports(
+        Array.from(bindings.values(), (binding) => binding.split(",")).map(([k, v]) => ts.factory.createImportSpecifier(
+            false, v && ts.factory.createIdentifier(k), ts.factory.createIdentifier(v ?? k)
+        ))
+    )),
+    ts.factory.createStringLiteral(name),
+    undefined
+)));
+
+/**
+ * Generate exports for the primary module declaration
+ * @param {Map<String, ts.ExportDeclaration>} exports - any external modules that are re-exported
+ * @param {ts.ClassDeclaration} node - the default export of the primary module declaration
+ * @param {Map<String, NamespaceMember>} members - any nested namespaces that also need to be exported
+ * @returns {ts.Node[]} exports statements for the primary module declaration
+ */
+const generateModuleExports = (exports, node, members) => ([
+    ...Array.from(exports?.values() ?? []),
+    ...(members instanceof Map ? [
+        ts.factory.createExportDefault(node.name),
+        ...Array.from(members.entries(), ([, {node: {name}}]) => ts.factory.createVariableStatement(
+            [ts.factory.createToken(ts.SyntaxKind.ExportKeyword), ts.factory.createToken(ts.SyntaxKind.ConstKeyword)],
+            ts.factory.createVariableDeclaration(name, undefined, ts.factory.createTypeQueryNode(ts.factory.createQualifiedName(node.name, name)))
+        ))
+    ] : [])
+]);
+
+/**
+ * Create a TypeScript source file and generate module declarations
+ * @param {ts.TypeChecker} checker - the TypeScript program's type checker
+ * @param {Object} content - details of what should be included in the source file
+ * @param {String} content.moduleName - name of the primary module declaration included in this source file
+ * @param {String} content.defaultExport - name of the primary module's primary export included in this source file
+ * @param {Map<String, ModuleImport>} [content.imports] - any externally declared modules imported in this source file
+ * @param {Map<string, ts.ExportDeclaration>} [content.exports] - any externally declared modules that are re-exported in this source file
+ * @param {Map<String, String>} [content.modules] - names of modules to generate alias declarations for
+ * @param {Map<String, NamespaceMember>} content.namespaces - contents of the primary module to generate declarations for
+ * @returns {ts.SourceFile} the generated source file including all requested declarations
+ */
+export const generateDeclarationFile = (checker, {moduleName, defaultExport, imports, exports, modules, namespaces}) => ts.factory.createSourceFile(ts.factory.createNodeArray([
+    ...Array.from(modules?.entries() ?? []).filter(([name]) => name !== moduleName).map(([name, namespace]) => generateModuleDeclaration(
+        ts.factory.createStringLiteral(name), ts.SyntaxKind.DeclareKeyword, [
+            ts.factory.createImportDeclaration(undefined, ts.factory.createImportClause(false, ts.factory.createIdentifier(defaultExport)), ts.factory.createStringLiteral(moduleName)),
+            ts.factory.createExportAssignment(undefined, true, ts.factory.createPropertyAccessExpression(...namespace.split(".").map(ts.factory.createIdentifier)))
+        ]
+    )),
+    generateModuleDeclaration(ts.factory.createStringLiteral(moduleName), ts.SyntaxKind.DeclareKeyword, [
+        ...generateModuleImports(imports),
+        ...generateModuleExports(exports, namespaces.get(defaultExport)?.node, namespaces.get(defaultExport)?.members),
+        ...generateNamespaceDeclarations(checker, namespaces)
+    ])
+]));

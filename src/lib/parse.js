@@ -3,11 +3,12 @@ import {isJSDocAbstractTag, isJSDocInternalTag, isJSDocPropertyTag, isJSDocTypeP
 
 /**
  * Traverse to a given namespace in a map, then take some kind of action
+ * @template {*} T - the type of the target entry in the map
  * @param {String|ts.Node} node - either the namespace name, or node with JSDoc tags to find namespace name for
- * @param {Map<string, any>} target - where the found namespace, and any intermediaries, should be saved to
+ * @param {Map<String, T>} target - where the found namespace, and any intermediaries, should be saved to
  * @param {String[]} [tagNames] - method to determine name-containing tag when looking for namespace name from JSDoc tags
  * @param {Function} [whenFound] - what to do when the destination namespace has been found
- * @returns {*} the destination namespace value from the target
+ * @returns {T} the destination namespace value from the target
  */
 export const findNamespaces = (node, target, tagNames = [], whenFound = (_, e) => e) => {
     // If node is a node, go look for JSDoc tags that could have a namespace...
