@@ -18,6 +18,14 @@ const generateTypeParameterDeclarations = (checker, locals) => (locals && Array.
 );
 
 /**
+ * Generate a qualified name node for a given namespace, or a plain identifier for an unqualified name
+ * @param {String} namespace - the namespace to generate the qualified name or plain identifier node for
+ * @returns {ts.Identifier|ts.QualifiedName} the qualified name node, or identifier node for unqualified names
+ */
+const generateQualifiedName = (namespace) => namespace.split(".").map(ts.factory.createIdentifier)
+    .reduce((left, right) => !left ? right : ts.factory.createQualifiedName(left, right), null);
+
+/**
  * Potentially wrap a given type in an Array type reference
  * @param {ts.Node} type - the underlying type to be wrapped
  * @param {Boolean} [isArrayType] - whether the type should be wrapped
@@ -402,20 +410,24 @@ const generateModuleImports = (imports) => Array.from(imports?.entries() ?? []).
 )));
 
 /**
- * Generate exports for the primary module declaration
- * @param {Map<String, ts.ExportDeclaration>} exports - any external modules that are re-exported
- * @param {ts.ClassDeclaration} node - the default export of the primary module declaration
- * @param {Map<String, NamespaceMember>} members - any nested namespaces that also need to be exported
+ * Generate exports for a module declaration
+ * @param {ts.Identifier|ts.QualifiedName} defaultExport - identifier for the default export of the module declaration
+ * @param {Map<String, NamespaceMember>} [members] - any nested namespaces that also need to be exported
+ * @param {Map<String, ts.ExportDeclaration>} [exports] - any external modules that are re-exported
  * @returns {ts.Node[]} exports statements for the primary module declaration
  */
-const generateModuleExports = (exports, node, members) => ([
+const generateModuleExports = (defaultExport, members, exports) => ([
     ...Array.from(exports?.values() ?? []),
     ...(members instanceof Map ? [
-        ts.factory.createExportDefault(node.name),
-        ...Array.from(members.entries(), ([, {node: {name}}]) => ts.factory.createVariableStatement(
-            [ts.factory.createToken(ts.SyntaxKind.ExportKeyword), ts.factory.createToken(ts.SyntaxKind.ConstKeyword)],
-            ts.factory.createVariableDeclaration(name, undefined, ts.factory.createTypeQueryNode(ts.factory.createQualifiedName(node.name, name)))
-        ))
+        // Create import equals aliases from each namespace member...
+        ...Array.from(members.keys(), ts.factory.createIdentifier)
+            .map((name) => ts.factory.createImportEqualsDeclaration(undefined, false, name, ts.factory.createQualifiedName(defaultExport, name))),
+        // ...then, if there were any namespace members, export them!
+        ...(members.size ? [ts.factory.createExportDeclaration(
+            undefined, false, ts.factory.createNamedExports(Array.from(members.keys(), (name) => ts.factory.createExportSpecifier(false, undefined, ts.factory.createIdentifier(name))))
+        )] : []),
+        // Create the module's default export
+        ts.factory.createExportDefault(!ts.isQualifiedName(defaultExport) ? defaultExport : ts.factory.createPropertyAccessExpression(defaultExport.left, defaultExport.right))
     ] : [])
 ]);
 
@@ -435,12 +447,12 @@ export const generateDeclarationFile = (checker, {moduleName, defaultExport, imp
     ...Array.from(modules?.entries() ?? []).filter(([name]) => name !== moduleName).map(([name, namespace]) => generateModuleDeclaration(
         ts.factory.createStringLiteral(name), ts.SyntaxKind.DeclareKeyword, [
             ts.factory.createImportDeclaration(undefined, ts.factory.createImportClause(false, ts.factory.createIdentifier(defaultExport)), ts.factory.createStringLiteral(moduleName)),
-            ts.factory.createExportAssignment(undefined, true, ts.factory.createPropertyAccessExpression(...namespace.split(".").map(ts.factory.createIdentifier)))
+            ...generateModuleExports(generateQualifiedName(namespace), findNamespaces(namespace, namespaces)?.members)
         ]
     )),
     generateModuleDeclaration(ts.factory.createStringLiteral(moduleName), ts.SyntaxKind.DeclareKeyword, [
         ...generateModuleImports(imports),
-        ...generateModuleExports(exports, namespaces.get(defaultExport)?.node, namespaces.get(defaultExport)?.members),
+        ...generateModuleExports(ts.factory.createIdentifier(defaultExport), namespaces.get(defaultExport)?.members, exports),
         ...generateNamespaceDeclarations(checker, namespaces)
     ])
 ]));
