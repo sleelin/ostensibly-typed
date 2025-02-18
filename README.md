@@ -1,3 +1,7 @@
+<a href="https://github.com/sleelin/ostensibly-typed">
+  <img alt="OstensiblyTyped" src="https://raw.githubusercontent.com/sleelin/ostensibly-typed/79ca3efdaac4a1fb71f0318434015ec8c1e2da58/assets/logo.svg" width="512" />
+</a>
+
 # OstensiblyTyped
 
 Generate type declarations for JavaScript libraries at build time, from JSDoc type annotations.
