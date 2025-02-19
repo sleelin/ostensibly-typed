@@ -1,5 +1,5 @@
 <a href="https://github.com/sleelin/ostensibly-typed">
-  <img alt="OstensiblyTyped" src="https://raw.githubusercontent.com/sleelin/ostensibly-typed/79ca3efdaac4a1fb71f0318434015ec8c1e2da58/assets/logo.svg" width="512" />
+  <img alt="OstensiblyTyped" src="https://raw.githubusercontent.com/sleelin/ostensibly-typed/d35dc94ba3aca40eb15959959e9aac012fc98c9d/assets/logo.svg" width="512" />
 </a>
 
 # OstensiblyTyped
