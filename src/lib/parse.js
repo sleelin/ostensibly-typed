@@ -172,6 +172,16 @@ export const resolveActualType = (checker, node, isAsync = false) => {
             case ts.SyntaxKind.TypeQuery:
                 return node;
             
+            // Create type nodes for string/numeric/true/false literals
+            case ts.SyntaxKind.StringLiteral:
+                return ts.factory.createLiteralTypeNode(ts.factory.createStringLiteral(node.text));
+            case ts.SyntaxKind.NumericLiteral:
+                return ts.factory.createLiteralTypeNode(ts.factory.createNumericLiteral(node.text));
+            case ts.SyntaxKind.TrueKeyword:
+                return ts.factory.createLiteralTypeNode(ts.factory.createTrue());
+            case ts.SyntaxKind.FalseKeyword:
+                return ts.factory.createLiteralTypeNode(ts.factory.createFalse());
+            
             // Go through and resolve Union/Intersection/Array/Tuple type argument types
             case ts.SyntaxKind.UnionType:
                 return ts.factory.createUnionTypeNode(node.types.map((t) => resolveActualType(checker, t)));
