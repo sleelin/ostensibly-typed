@@ -1,6 +1,6 @@
 import ts from "typescript";
 import {findNamespaces, getNamespaceNameForTag, resolveActualType, resolveNodeLocals, resolveVirtualTags, resolveUnderstructuredTags, resolveQualifiedName} from "./parse.js";
-import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isJSDocThrowsTag, isConstructableType, isOptionalType, isReadOnlyAccessor, isStaticModifier, isExtendsClause} from "./filter";
+import {filterMembers, isJSDocAbstractTag, isJSDocExtendsTag, isJSDocPropertyTag, isJSDocThrowsTag, isConstructableType, isOptionalType, isReadOnlyAccessor, isLiteralReturnType, isStaticModifier, isExtendsClause} from "./filter";
 import {annotateFunction, annotateMethod, annotateProp} from "./annotate.js";
 
 /**
@@ -130,13 +130,17 @@ const generateMethodDeclaration = (checker, node, namespaces) => {
     let type = ts.getJSDocTypeTag(node);
     
     // Handle property accessor methods with type annotations
-    if (ts.isAccessor(node) && (type || implementsTag?.class?.typeArguments?.length)) {
+    if (ts.isAccessor(node) && (type || implementsTag?.class?.typeArguments?.length || !!node.body?.statements?.find(isLiteralReturnType))) {
         // Resolve any inherited types from implements tags
         if (!type && implementsTag?.class?.typeArguments?.length) {
             const {name} = implementsTag.class.expression;
             const source = findNamespaces(getNamespaceNameForTag(implementsTag.class.expression), namespaces).node;
             
             type = ts.getJSDocTypeTag(source.members.find((m) => ts.isGetAccessorDeclaration(m) && m.name.escapedText === name.escapedText));
+        }
+        // Resolve the type from the get accessor's return statement
+        else if (!type && isReadOnlyAccessor(node) && node.body?.statements?.find(isLiteralReturnType)) {
+            type = node.body?.statements?.find(isLiteralReturnType)?.expression;
         }
         
         return [

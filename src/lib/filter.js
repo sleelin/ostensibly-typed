@@ -63,6 +63,14 @@ export const isExtendsClause = ({token}) => (token === ts.SyntaxKind.ExtendsKeyw
 export const isReadOnlyAccessor = (node) => !node?.parent?.members?.some((m) => ts.isSetAccessor(m) && m.name?.escapedText === node.name.escapedText);
 
 /**
+ * Check whether a given node is a return statement for a literal expression
+ * @param {ts.Node} node - the node to check for a literal return type
+ * @returns {Boolean} whether the node is a return statement with a literal return type
+ */
+export const isLiteralReturnType = (node) => !!node && ts.isReturnStatement(node)
+    && [ts.SyntaxKind.StringLiteral, ts.SyntaxKind.NumericLiteral, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(node.expression.kind);
+
+/**
  * Remove any private, internal, unnamed, or otherwise irrelevant members from a class
  * @param {String} type - what kind of class is being declared
  * @param {ts.Node[]} members - all members defined for a class
