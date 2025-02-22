@@ -172,13 +172,15 @@ export const resolveActualType = (checker, node, isAsync = false) => {
             case ts.SyntaxKind.TypeQuery:
                 return node;
             
-            // Go through and resolve Union/Intersection/Array type argument types
+            // Go through and resolve Union/Intersection/Array/Tuple type argument types
             case ts.SyntaxKind.UnionType:
                 return ts.factory.createUnionTypeNode(node.types.map((t) => resolveActualType(checker, t)));
             case ts.SyntaxKind.IntersectionType:
                 return ts.factory.createIntersectionTypeNode(node.types.map((t) => resolveActualType(checker, t)));
             case ts.SyntaxKind.ArrayType:
                 return ts.factory.createArrayTypeNode(resolveActualType(checker, node.elementType));
+            case ts.SyntaxKind.TupleType:
+                return ts.setEmitFlags(ts.factory.createTupleTypeNode(node.elements.map((t) => resolveActualType(checker, t))), ts.EmitFlags.SingleLine);
             
             // Also go through and resolve TypeReference type arguments...
             case ts.SyntaxKind.TypeReference:
